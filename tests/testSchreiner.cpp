@@ -47,7 +47,8 @@ int main(int argc, char *const *argv)
   DGtal::trace.beginBlock("Testing class CoronaryArteryTree: construction base (2)");
   bool ok2 = false;
   auto pRan = c.myVectSegments[1].myCoordinate;
-  c.addSegmentFromPoint(DGtal::Z2i::RealPoint(15, 20), c.myVectSegments[1].myRadius);
+  if (!c.addSegmentFromPoint(DGtal::Z2i::RealPoint(15, 20), 1))
+    return EXIT_FAILURE;
   c.exportBoardDisplay("testBase2.svg", 1.0, true);
   c.exportBoardDisplay("testBase2.eps", 1.0, true);
   
@@ -55,7 +56,7 @@ int main(int argc, char *const *argv)
   DGtal::trace.info() <<"Parent of new segment "
   << c.myVectSegments[c.myVectParent[addIndex]].myCoordinate << " (should be "
   << c.myVectSegments[1].myCoordinate << ")" << std::endl;
-  ok2 = c.myVectSegments[c.myVectParent[addIndex]].myCoordinate == c.myVectSegments[1].myCoordinate;
+  ok2 = c.myVectParent[addIndex] == 1;
   
   unsigned int indexLeft = c.myVectChildren[c.myVectParent[addIndex]].first;
   unsigned int indexRight = c.myVectChildren[c.myVectParent[addIndex]].second;
@@ -197,5 +198,5 @@ int main(int argc, char *const *argv)
   
   DGtal::trace.endBlock();
   
-  return EXIT_SUCCESS;
+  return ok && ok2 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
