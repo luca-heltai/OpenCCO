@@ -1,0 +1,47 @@
+diff --git a/cmake/CheckDGtalDependencies.cmake b/cmake/CheckDGtalDependencies.cmake
+index 7d8b74ae5..3b67a5499 100644
+--- a/cmake/CheckDGtalDependencies.cmake
++++ b/cmake/CheckDGtalDependencies.cmake
+@@ -13,7 +13,7 @@ set(Boost_USE_STATIC_LIBS   ON)
+ set(Boost_USE_MULTITHREADED ON)
+ set(Boost_USE_STATIC_RUNTIME OFF)
+ set(Boost_FOUND FALSE)
+-find_package(Boost 1.50.0 REQUIRED)
++find_package(Boost 1.50.0 CONFIG REQUIRED)
+ target_compile_definitions(DGtal PUBLIC ${BOOST_DEFINITIONS} -DBOOST_ALL_NO_LIB)
+ # SYSTEM to avoid warnings from boost.
+ target_include_directories(DGtal SYSTEM PUBLIC ${Boost_INCLUDE_DIRS} )
+diff --git a/cmake/DevelopmentOptions.cmake b/cmake/DevelopmentOptions.cmake
+index 5df633c6e..d998be799 100644
+--- a/cmake/DevelopmentOptions.cmake
++++ b/cmake/DevelopmentOptions.cmake
+@@ -21,6 +21,8 @@ endif()
+ # -----------------------------------------------------------------------------
+ # CPM and CCache specific options
+ # -----------------------------------------------------------------------------
++option(DGTAL_DEVELOPER_TOOLS "Fetch optional ccache and formatting helpers" OFF)
++if(DGTAL_DEVELOPER_TOOLS)
+ include(cmake/CPM.cmake)
+ CPMAddPackage(
+   NAME Ccache.cmake
+@@ -44,6 +46,7 @@ CPMAddPackage(
+ # -----------------------------------------------------------------------------
+ # Debug specific options
+ # -----------------------------------------------------------------------------
++endif()
+ option(WARNING_AS_ERROR "Transform compiler warnings as errors (in Debug build type)." OFF)
+ if (WARNING_AS_ERROR)
+   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror")
+diff --git a/cmake/doxygen.cmake b/cmake/doxygen.cmake
+index b0c431c6d..c271c506e 100644
+--- a/cmake/doxygen.cmake
++++ b/cmake/doxygen.cmake
+@@ -9,7 +9,7 @@ find_program(DOT_EXE dot)
+ if ( DOT_EXE )
+   message (STATUS "dot found: ${DOT_EXE}. Installing doc in ${INSTALL_DOC_PATH}")
+ else ( DOT_EXE )
+-  message( WARNING "Note: dot program not found in environment. If you wish to use it in doxygen, you should add its path to the variable PATH." )
++  message( STATUS "Optional Graphviz dot not found; documentation diagrams are disabled." )
+   message( STATUS "disabling dot." )
+   set( HAVE_DOT NO )
+ endif()

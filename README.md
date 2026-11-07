@@ -23,7 +23,7 @@ Version 1.0 04/04/2023
 
 ## Dependencies
 
-- CMake >= 3.5
+- CMake >= 3.16 and a C++17 compiler
 - [DGtal](https://github.com/DGtal-team/DGtal) 
    (eventually with QGLViewer to have 3D display tools but not mandatory)
 - [DGtalTools-contrib](https://github.com/DGtal-team/DGtalTools-contrib.git) (optional) : provide **graphViewer** tool
@@ -36,6 +36,9 @@ sudo apt-get install cmake libboost-dev libceres-dev libceres1
 ```
 
 ## Installation
+
+For a reproducible macOS build using existing Spack packages and project-local
+Ceres/DGtal installations, see [the macOS build guide](docs/build-macos.md).
 
 
 1. mkdir build && cd build
