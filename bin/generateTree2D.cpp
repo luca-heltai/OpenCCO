@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <chrono>
+#include <cmath>
 
 #include "DGtal/base/Common.h"
 #include "DGtal/helpers/StdDefs.h"
@@ -39,39 +40,35 @@
  * Function to construct the tree with the help ConstructionHelpers by using a domain of reconstruction defined fram an image (ImageMaskDomainCtrl)l
  */
 template<typename TTree>
-void
-constructTreeMaskDomain(TTree &aTree, bool verbose)
+bool
+constructTreeMaskDomain(TTree &aTree, bool verbose,
+                        unsigned int searchTrials, unsigned int samplingTrials)
 {
-    clock_t start, end;
-    start = clock();
+    const clock_t start = clock();
     ExpandTreeHelpers::initFirtElemTree(aTree);
-    ExpandTreeHelpers::expandTree(aTree, verbose);
-    end = clock();
-    printf ("Execution time: %0.8f sec\n", ((double) end - start)/CLOCKS_PER_SEC);
+    const bool complete = ExpandTreeHelpers::expandTree(aTree, verbose, searchTrials, samplingTrials);
+    printf ("Execution time: %0.8f sec\n", (double(clock()) - start) / CLOCKS_PER_SEC);
+    return complete;
 }
 
-
 template<typename TTree>
-void
-constructTreeImplicitDomain(TTree &aTree,std::string exportXMLName, bool verbose)
+bool
+constructTreeImplicitDomain(TTree &aTree, std::string exportXMLName, bool verbose,
+                            unsigned int searchTrials, unsigned int samplingTrials)
 {
-    clock_t start, end;
-    start = clock();
+    const clock_t start = clock();
     ExpandTreeHelpers::initFirtElemTree(aTree, verbose);
-    ExpandTreeHelpers::expandTree(aTree);
-    end = clock();
-    printf ("Execution time: %0.8f sec\n", ((double) end - start)/CLOCKS_PER_SEC);
+    const bool complete = ExpandTreeHelpers::expandTree(aTree, verbose, searchTrials, samplingTrials);
+    printf ("Execution time: %0.8f sec\n", (double(clock()) - start) / CLOCKS_PER_SEC);
     XMLHelpers::writeTreeToXml(aTree, "tree_2D.xml");
-    if (exportXMLName != "") XMLHelpers::writeTreeToXml(aTree,
-                                                        exportXMLName.c_str());
+    if (exportXMLName != "") XMLHelpers::writeTreeToXml(aTree, exportXMLName.c_str());
     std::string filename = "testCCO_"+std::to_string(aTree.my_NTerm)+".eps";
     aTree.exportBoardDisplay(filename.c_str(), 1.0);
     aTree.exportBoardDisplay("result.eps", 1.0);
     aTree.exportBoardDisplay("result.svg", 1.0);
     aTree.myBoard.clear();
+    return complete;
 }
-
-
 
 /**
  * @brief main function call
@@ -80,7 +77,9 @@ constructTreeImplicitDomain(TTree &aTree,std::string exportXMLName, bool verbose
 int main(int argc, char *const *argv)
 {
     clock_t start, end;
-    srand ((int) time(NULL));
+    unsigned int seed = static_cast<unsigned int>(time(NULL));
+    int searchTrials = 100, samplingTrials = 1000;
+    bool complete = false;
 
     // parse command line using CLI ----------------------------------------------
     CLI::App app;
@@ -108,9 +107,20 @@ int main(int argc, char *const *argv)
     auto pInit = app.add_option("-p,--posInit", postInitV, "Initial position of root, if not given the position of point is determined from the image center")
     ->expected(2);
     app.add_flag("-v,--verbose", verbose);
+    app.add_option("--seed", seed, "Random seed", true);
+    app.add_option("--searchTrials", searchTrials, "Candidate searches per insertion", true);
+    app.add_option("--samplingTrials", samplingTrials, "Total samples per candidate search", true);
     app.get_formatter()->column_width(40);
     CLI11_PARSE(app, argc, argv);
     // END parse command line using CLI ----------------------------------------------
+    if (nbTerm < 1 || searchTrials < 1 || samplingTrials < 1 ||
+        !std::isfinite(aPerf) || aPerf <= 0.0 ||
+        !std::isfinite(gamma) || gamma <= 0.0 ||
+        !std::isfinite(minDistanceToBorder) || minDistanceToBorder < 0.0) {
+        std::cerr << "Require positive counts, budgets, perfusion measure and gamma; finite nonnegative border distance\n";
+        return EXIT_FAILURE;
+    }
+    srand(seed);
     
     DGtal::Z2i::Point ptRoot(postInitV[0], postInitV[1]);
   
@@ -133,7 +143,7 @@ int main(int argc, char *const *argv)
         aDomCtr.myMinDistanceToBorder = minDistanceToBorder;
         TTree tree  (aPerf, nbTerm, aDomCtr,  1.0);
         tree.my_gamma = gamma;
-        constructTreeMaskDomain(tree, verbose);
+        complete = constructTreeMaskDomain(tree, verbose, searchTrials, samplingTrials);
         XMLHelpers::writeTreeToXml(tree, "tree_2D.xml");
         if (exportXMLName != "") XMLHelpers::writeTreeToXml(tree, exportXMLName.c_str());
         
@@ -155,7 +165,7 @@ int main(int argc, char *const *argv)
         SqDomCtrl aCtr(1.0,pCenter);
         TTree tree  (aPerf, nbTerm, aCtr, 1.0);
         tree.my_gamma = gamma;
-        constructTreeImplicitDomain(tree, exportXMLName, verbose);
+        complete = constructTreeImplicitDomain(tree, exportXMLName, verbose, searchTrials, samplingTrials);
         end = clock();
         printf ("Execution time: %0.8f sec\n", ((double) end - start)/CLOCKS_PER_SEC);
     }else {
@@ -166,11 +176,11 @@ int main(int argc, char *const *argv)
         DiskDomCtrl aCtr(1.0,pCenter);
         TTree tree  (aPerf, nbTerm, aCtr, 1.0);
         tree.my_gamma = gamma;
-        constructTreeImplicitDomain(tree, exportXMLName, verbose);
+        complete = constructTreeImplicitDomain(tree, exportXMLName, verbose, searchTrials, samplingTrials);
         end = clock();
         printf ("Execution time: %0.8f sec\n", ((double) end - start)/CLOCKS_PER_SEC);
 
     }
     
-    return EXIT_SUCCESS;
+    return complete ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -57,73 +57,51 @@ initFirtElemTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
 
 template<typename DomCtr, int TDim>
 inline
-void
+bool
 expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
            bool verbose = false, unsigned int nbMaxSearch = 100,
-           unsigned int nbTryCandite = 100)
+           unsigned int nbTryCandidate = 1000)
 {
-    srand ((unsigned int) time(NULL));
-    bool isOK = false;
-    unsigned int nbSeedFound = 1;
-    unsigned int nbSeed = aTree.my_NTerm;
-    for (unsigned int i = 1; i < nbSeed; i++) {
-        DGtal::trace.progressBar(i, nbSeed);
-        size_t nbSol = 0, itOpt = 0;
-        CoronaryArteryTree< DomCtr, TDim > cTreeOpt = aTree;
-        double volOpt = -1.0, vol = 0.0;
-        unsigned int nbT = 0;
-        while (nbSol==0 && nbT < nbMaxSearch) {
-            auto pt = aTree.generateNewLocation(nbTryCandite);
-            nbT++;
-            std::vector<unsigned int> vecN = aTree.getN_NearestSegments(pt,aTree.myNumNeighbor);
-            for(size_t it=0; it<vecN.size(); it++) {
-                auto ptBifurcation = aTree.findBarycenter(pt, vecN.at(it));
-                     if(!aTree.isIntersectingTree(pt, ptBifurcation,
-                                                  aTree.myVectSegments[vecN.at(it)].myRadius,
-                                                  vecN.at(it))) {
-                    CoronaryArteryTree< DomCtr, TDim  > cTree1 = aTree;
-                    isOK = cTree1.isAddable(pt,vecN.at(it), 100, 0.01, cTree1.myNumNeighbor, verbose);
-                    if(isOK) {
-                        vol = cTree1.computeTotalVolume(1);
-                        if(volOpt<0.0) {
-                            volOpt = vol;
-                            cTreeOpt = cTree1;
-                            itOpt = it;
-                        }
-                        else {
-                            if(volOpt>vol) {
-                                volOpt = vol;
-                                cTreeOpt = cTree1;
-                                itOpt = it;
-                            }
-                        }
-                        nbSol++;
-                    }
+    // The caller owns the RNG seed. Never restart it from wall-clock time here.
+    while (aTree.myKTerm < aTree.my_NTerm) {
+        DGtal::trace.progressBar(aTree.myKTerm, aTree.my_NTerm);
+        bool found = false;
+        CoronaryArteryTree< DomCtr, TDim > best = aTree;
+        double bestVolume = 0.0;
+        for (unsigned int search = 0; search < nbMaxSearch && !found; ++search) {
+            const auto sample = aTree.tryGenerateNewLocation(nbTryCandidate);
+            if (!sample.second) continue;
+            const auto &point = sample.first;
+            const auto nearest = aTree.getN_NearestSegments(point, aTree.myNumNeighbor);
+            for (const auto index : nearest) {
+                const auto center = aTree.findBarycenter(point, index);
+                if (aTree.isIntersectingTree(point, center,
+                                            aTree.myVectSegments[index].myRadius,
+                                            index)) continue;
+                auto candidate = aTree;
+                if (!candidate.isAddable(point, index, 100, 0.01,
+                                         candidate.myNumNeighbor, verbose)) continue;
+                const double volume = candidate.computeTotalVolume(1);
+                if (!found || volume < bestVolume) {
+                    bestVolume = volume;
+                    best = candidate;
                 }
+                found = true;
             }
         }
-        if(nbT < nbMaxSearch){
-            nbSeedFound++;
-        }
-        aTree = cTreeOpt;
+        if (!found) break;
+        aTree = best;
         aTree.updateLengthFactor();
         aTree.updateResistanceFromRoot();
         aTree.updateRootRadius();
     }
-    if (nbSeed != nbSeedFound){
-        DGtal::trace.warning() << "All seeds not found due to too large domain constraints ("
-        << nbSeedFound << " over " << nbSeed << ")";
-    }
-    /*
-    if (verbose){
-        std::cout<<"====> Aperf="<<aTree.myRsupp*aTree.myRsupp*aTree.my_NTerm*M_PI<<" == "<<aTree.my_aPerf<<std::endl;
-    }
-    */
+    const bool complete = aTree.myKTerm == aTree.my_NTerm;
+    if (!complete)
+        DGtal::trace.warning() << "CCO budget exhausted: partial tree ("
+                              << aTree.myKTerm << " of " << aTree.my_NTerm
+                              << " requested terminals)" << std::endl;
+    return complete;
 }
-
-
-
-
 
 
 template<typename TImage >

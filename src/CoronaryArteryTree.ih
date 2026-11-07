@@ -574,23 +574,23 @@ CoronaryArteryTree<DomCtr, TDim>::getPathToRoot(const Segment &s)
 template< class DomCtr, int TDim >
 typename CoronaryArteryTree<DomCtr, TDim>::TPointD
 CoronaryArteryTree<DomCtr, TDim>::generateNewLocation(unsigned int nbTrials){
-  TPointD  res;
-  double myDThresold = getDistanceThreshold();
-  bool found = false;
-  unsigned int n = nbTrials;
-  while(!found && n >= 0) {
-    n--;
-    auto p =  generateALocation(myDThresold);
-    found = p.second;
-    if (found) {
-      res = p.first;
-    }
-    if (n==0) {
-      n = nbTrials;
-      myDThresold *= 0.9;
-    }
+  const auto result = tryGenerateNewLocation(nbTrials);
+  if (!result.second)
+    throw std::runtime_error("CCO sampling budget exhausted");
+  return result.first;
+}
+
+template< typename DomCtr, int TDim >
+std::pair<typename CoronaryArteryTree<DomCtr, TDim>::TPointD, bool>
+CoronaryArteryTree<DomCtr, TDim>::tryGenerateNewLocation(unsigned int nbTrials) {
+  double threshold = getDistanceThreshold();
+  for (unsigned int trial = 0; trial < nbTrials; ++trial) {
+    // Retain the legacy adaptive spacing policy, but within a total budget.
+    if (trial != 0 && trial % 100 == 0) threshold *= 0.9;
+    const auto result = generateALocation(threshold);
+    if (result.second) return result;
   }
-  return res;
+  return {TPointD(), false};
 }
 
 template< typename DomCtr, int TDim >

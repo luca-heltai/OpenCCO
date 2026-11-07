@@ -79,7 +79,7 @@ public:
     
     virtual bool isInside(const TPoint &p)
     {
-        return (myCenter-p).norm() < myRadius;
+        return (myCenter-p).norm() <= myRadius;
     }
     
     TPoint
@@ -89,11 +89,11 @@ public:
         while(!found){
             double ss = 0.0;
             for(unsigned int i = 0;i<TDim; i++ ){
-                p[i] = ((double)rand() / RAND_MAX)*2.0*myRadius - myRadius;
+                p[i] = myCenter[i] + ((double)rand() / RAND_MAX)*2.0*myRadius - myRadius;
             }
             found = isInside(p);
         }
-        return p + myCenter;
+        return p;
     }
     /**
      * Get the supported domain of the tree. By default it is defined from the circle center.
@@ -122,16 +122,8 @@ public:
     
     TPoint
     firtCandidatePoint() const {
-        TPoint res;
-        if (TDim == 2){
-            res[0] = 0.0;
-            res[1] = myRadius;
-        }else  if (TDim == 3){
-            res[0] = 0.0;
-            res[1] = myRadius;
-            res[2] = 0.0;
-            
-        }
+        TPoint res = myCenter;
+        res[1] += myRadius;
         
         return res;
         
@@ -173,7 +165,7 @@ public:
     {
         bool res = true;
         for (unsigned int i=0; i<TDim; i++){
-            res = res && (CircularDomainCtrl<TDim>::myCenter-p)[i] < CircularDomainCtrl<TDim>::myRadius;
+            res = res && std::abs((CircularDomainCtrl<TDim>::myCenter-p)[i]) <= CircularDomainCtrl<TDim>::myRadius;
         }
         return res;
     }

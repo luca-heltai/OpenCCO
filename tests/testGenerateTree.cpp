@@ -45,7 +45,8 @@ int main(int argc, char *const *argv)
 
   // 5. Tree construction
   ExpandTreeHelpers::initFirtElemTree(tree, true);
-  ExpandTreeHelpers::expandTree(tree, true);
+  if (!ExpandTreeHelpers::expandTree(tree, true))
+    return EXIT_FAILURE;
   
   // 5. exporting the result
   tree.exportBoardDisplay("testResult2TreeMaskedDomain.eps", 1.0);
@@ -69,7 +70,8 @@ int main(int argc, char *const *argv)
 
   // 4. Tree expansion
   ExpandTreeHelpers::initFirtElemTree(treeImpl, true);
-  ExpandTreeHelpers::expandTree(treeImpl, true);
+  if (!ExpandTreeHelpers::expandTree(treeImpl, true))
+    return EXIT_FAILURE;
 
   // 5. Tree export
   treeImpl.exportBoardDisplay("testResult2TreeMaskedDomain.eps", 1.0);

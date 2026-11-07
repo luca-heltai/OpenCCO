@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <chrono>
+#include <cmath>
 
 #include <iostream>
 #include <fstream>
@@ -50,45 +51,38 @@
  * Function to construct the tree with the help ConstructionHelpers by using a domain of reconstruction defined fram an image (ImageMaskDomainCtrl)l
  */
 template<typename TTree>
-void
-constructTreeMaskDomain(TTree &aTree,
-                       bool verbose)
+bool
+constructTreeMaskDomain(TTree &aTree, bool verbose,
+                        unsigned int searchTrials, unsigned int samplingTrials)
 {
-    clock_t start, end;
-    start = clock();
+    const clock_t start = clock();
     ExpandTreeHelpers::initFirtElemTree(aTree, verbose);
-    ExpandTreeHelpers::expandTree(aTree, verbose);
-    end = clock();
-    printf ("Execution time: %0.8f sec\n", ((double) end - start)/CLOCKS_PER_SEC);
+    const bool complete = ExpandTreeHelpers::expandTree(aTree, verbose, searchTrials, samplingTrials);
+    printf ("Execution time: %0.8f sec\n", (double(clock()) - start) / CLOCKS_PER_SEC);
+    return complete;
 }
 
-
 template<typename TTree>
-void
+bool
 constructTreeImplicitDomain(TTree &aTree, std::string outputMeshName,
                             std::string exportXMLName,
                             std::string exportDatName, bool verbose,
-                            bool display3D)
+                            bool display3D,
+                            unsigned int searchTrials, unsigned int samplingTrials)
 {
-    clock_t start, end;
-    start = clock();
+    const clock_t start = clock();
     ExpandTreeHelpers::initFirtElemTree(aTree, verbose);
-    ExpandTreeHelpers::expandTree(aTree, verbose);
-    end = clock();
-    printf ("Execution time: %0.8f sec\n", ((double) end - start)/CLOCKS_PER_SEC);
+    const bool complete = ExpandTreeHelpers::expandTree(aTree, verbose, searchTrials, samplingTrials);
+    printf ("Execution time: %0.8f sec\n", (double(clock()) - start) / CLOCKS_PER_SEC);
     if (exportDatName != "") exportDat(aTree, exportDatName);
-    if (exportXMLName != "") XMLHelpers::writeTreeToXml(aTree,
-                                                        exportXMLName.c_str());
-
+    if (exportXMLName != "") XMLHelpers::writeTreeToXml(aTree, exportXMLName.c_str());
     XMLHelpers::writeTreeToXml(aTree, "tree_3D.xml");
     exportResultingMesh(aTree, outputMeshName);
-    #ifdef WITH_VISU3D_QGLVIEWER
-        if (display3D) display3DTree(aTree);
-    #endif
-   }
-
-
-
+#ifdef WITH_VISU3D_QGLVIEWER
+    if (display3D) display3DTree(aTree);
+#endif
+    return complete;
+}
 
 template <typename TTree>
 void exportResultingMesh(const TTree &tree, std::string outName)
@@ -173,7 +167,9 @@ display3DTree(const TTree &tree )
 
 int main(int argc, char **argv)
 {
-  srand ((int) time(NULL));
+  unsigned int seed = static_cast<unsigned int>(time(NULL));
+  int searchTrials = 100, samplingTrials = 1000;
+  bool complete = false;
   // parse command line using CLI ----------------------------------------------
   CLI::App app;
   app.description("Generated a 3D tree using the CCO algorithm. By default it generates a 3D mesh.");
@@ -208,9 +204,20 @@ int main(int argc, char **argv)
   app.add_flag("--view", display3D, "display 3D view using QGLViewer");
 #endif
   app.add_flag("-v,--verbose", verbose);
+  app.add_option("--seed", seed, "Random seed", true);
+  app.add_option("--searchTrials", searchTrials, "Candidate searches per insertion", true);
+  app.add_option("--samplingTrials", samplingTrials, "Total samples per candidate search", true);
   app.get_formatter()->column_width(40);
   CLI11_PARSE(app, argc, argv);
   // END parse command line using CLI ----------------------------------------------
+  if (nbTerm < 1 || searchTrials < 1 || samplingTrials < 1 ||
+      !std::isfinite(aPerf) || aPerf <= 0.0 ||
+      !std::isfinite(gamma) || gamma <= 0.0 ||
+      !std::isfinite(minDistanceToBorder) || minDistanceToBorder < 0.0) {
+    std::cerr << "Require positive counts, budgets, perfusion measure and gamma; finite nonnegative border distance\n";
+    return EXIT_FAILURE;
+  }
+  srand(seed);
 
   DGtal::Z3i::Point ptRoot(postInitV[0], postInitV[1], postInitV[2]);
 
@@ -235,7 +242,7 @@ int main(int argc, char **argv)
     TTree tree  (aPerf, nbTerm, aDomCtr, 1.0);
     tree.my_gamma = gamma;
 
-    constructTreeMaskDomain(tree, verbose);
+    complete = constructTreeMaskDomain(tree, verbose, searchTrials, samplingTrials);
     
     XMLHelpers::writeTreeToXml(tree, "tree_3D.xml");
     exportResultingMesh(tree, outputMeshName);
@@ -253,9 +260,9 @@ int main(int argc, char **argv)
       SqDomCtrl aCtr(1.0 ,pCenter);
       TTree tree  (aPerf, nbTerm, aCtr,  1.0);
       tree.my_gamma = gamma;
-      constructTreeImplicitDomain(tree, outputMeshName,
+      complete = constructTreeImplicitDomain(tree, outputMeshName,
                                     exportXMLName,
-                                    exportDatName, verbose, display3D);
+                                    exportDatName, verbose, display3D, searchTrials, samplingTrials);
   }
   else
   {
@@ -265,9 +272,9 @@ int main(int argc, char **argv)
     SphereDomCtrl aCtr(1.0 ,pCenter);
     TTree tree  (aPerf, nbTerm, aCtr,  1.0);
     tree.my_gamma = gamma;
-    constructTreeImplicitDomain(tree, outputMeshName,
+    complete = constructTreeImplicitDomain(tree, outputMeshName,
                                   exportXMLName,
-                                  exportDatName, verbose, display3D);    
+                                  exportDatName, verbose, display3D, searchTrials, samplingTrials);
   }
-  return EXIT_SUCCESS;
+  return complete ? EXIT_SUCCESS : EXIT_FAILURE;
 }
