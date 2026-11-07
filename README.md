@@ -39,6 +39,9 @@ sudo apt-get install cmake libboost-dev libceres-dev libceres1
 
 For a reproducible macOS build using existing Spack packages and project-local
 Ceres/DGtal installations, see [the macOS build guide](docs/build-macos.md).
+For importing and validating real IRCAD vascular inputs prepared by ImmersX,
+see [the anatomical liver guide](docs/anatomical-liver.md). This import stage
+does not yet enable anatomical CCO growth.
 
 
 1. mkdir build && cd build
