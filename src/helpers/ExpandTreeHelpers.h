@@ -47,7 +47,7 @@ void
 initFirtElemTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
                  bool verbose = false){
     for(unsigned int i = 0; i < TDim; i++){
-        aTree.myTreeCenter[i] = static_cast<int>(aTree.myDomainController().myCenter[i]);
+        aTree.myTreeCenter[i] = aTree.myDomainController().myCenter[i];
     }
     
     auto p = aTree.myDomainController().firtCandidatePoint();

@@ -1,5 +1,6 @@
 SET(TESTS_SRC
   testAnatomicalTree
+  testDomainCoordinates
   testCompCCO
   testGenerateTree
   testGeom
@@ -22,7 +23,7 @@ if(BUILD_TESTING)
       $<TARGET_FILE:inspectAnatomy>)
   set_tests_properties(testLiverInputBoundary PROPERTIES TIMEOUT 30)
   # testCompCCO requires external reference data not distributed with OpenCCO.
-  foreach(test_name testAnatomicalTree testGenerateTree testGeom testKamiya testSchreiner)
+  foreach(test_name testAnatomicalTree testDomainCoordinates testGenerateTree testGeom testKamiya testSchreiner)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${test_name}-output")
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES

@@ -30,6 +30,7 @@
 #define CORONARY_ARTERY_TREE_h
 
 #include <type_traits>
+#include <utility>
 
 
 #include <iostream>
@@ -73,6 +74,8 @@ public:
     typedef DGtal::HyperRectDomain<SpaceCT> DomCT;
     typedef DGtal::PointVector<TDim, int> TPoint;
     typedef DGtal::PointVector<TDim, double> TPointD;
+    // Mask controllers sample integer voxels; continuous controllers sample reals.
+    using TDomainPoint = decltype(std::declval<DomCtr &>().randomPoint());
     
     // Represent the left and right
     typedef std::pair<unsigned int, unsigned int> SegmentChildren;
@@ -450,10 +453,10 @@ public:
     void selfDisplay( std::ostream & out ) const;
     
     /**
-     * Get the supported domain of the tree. By default it is defined from the circle center.
-     * If the domain if defined from a mask image, the center if computed from the imate center.
+     * Return the center configured by the domain controller.
+     * Continuous coordinates are preserved; image masks return voxel coordinates.
      */
-    TPoint getDomainCenter() const;
+    TDomainPoint getDomainCenter() const;
     
     
     /**

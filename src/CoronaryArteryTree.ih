@@ -155,13 +155,16 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
                               unsigned int nbIter, double tolerance,
                               unsigned int nbNeibour, bool verbose)
 {
-  typedef typename DomCtr::TPoint::Component TCompPt;
+  const auto domainPoint = [](const TPointD &point) {
+    TDomainPoint result;
+    for (auto i = 0; i < TDim; ++i)
+      result[i] = static_cast<typename TDomainPoint::Component>(point[i]);
+    return result;
+  };
   TPointD pOpt, newCenter = findBarycenter(p, segIndex);
-  TPoint newCenterDom;
-  for (auto i=0; i < TDim; i++){newCenterDom[i] = static_cast<TCompPt>(newCenter[i]);}
-  TPoint pDom; for (auto i=0; i < TDim; i++){pDom[i] = static_cast<TCompPt>(p[i]);}
-
-  TPoint pSegIndDom; for (auto i=0; i < TDim; i++){pSegIndDom[i] = static_cast<TCompPt>(myVectSegments[segIndex].myCoordinate[i]);}
+  const auto newCenterDom = domainPoint(newCenter);
+  const auto pDom = domainPoint(p);
+  const auto pSegIndDom = domainPoint(myVectSegments[segIndex].myCoordinate);
   
   if (!myDomainController().isInside(newCenterDom))
   {
@@ -182,10 +185,7 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
   // Creation a copy of parent segment
   Segment sParent = myVectSegments[myVectParent[segIndex]];
   TPointD pParent = sParent.myCoordinate;
-  TPoint pParentDom;
-  for (auto i=0; i < TDim; i++){
-      pParentDom[i] = static_cast<TCompPt>(pParent[i]);
-  }
+  const auto pParentDom = domainPoint(pParent);
 
   if(!myDomainController().checkNoIntersectDomain(pParentDom,
                                                 newCenterDom))
@@ -250,10 +250,10 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     if(res2) //there is intersection between segments
       return false;
     
-    TPoint pParentDom; for (auto i=0; i < TDim; i++){pParentDom[i] = static_cast<int>(pParent[i]);}
-    TPoint pOptDom; for (auto i=0; i < TDim; i++){pOptDom[i] = static_cast<int>(pOpt[i]);}
-    TPoint sNewLeftDom; for (auto i=0; i < TDim; i++){sNewLeftDom[i] = static_cast<int>(sNewLeft.myCoordinate[i]);}
-    TPoint sNewRightDom; for (auto i=0; i < TDim; i++){sNewRightDom[i] = static_cast<int>(sNewRight.myCoordinate[i]);}
+    const auto pParentDom = domainPoint(pParent);
+    const auto pOptDom = domainPoint(pOpt);
+    const auto sNewLeftDom = domainPoint(sNewLeft.myCoordinate);
+    const auto sNewRightDom = domainPoint(sNewRight.myCoordinate);
 
     if(!myDomainController().isInside(pOptDom))
     { //resulting point is out of the domain
@@ -768,22 +768,9 @@ CoronaryArteryTree<DomCtr, TDim>::selfDisplay( std::ostream & out ) const {
   out << "----" << std::endl;
 }
 template< typename DomCtr, int TDim >
-typename CoronaryArteryTree<DomCtr, TDim>::TPoint CoronaryArteryTree<DomCtr,TDim>::getDomainCenter() const {
-  if (!myDomainController().myIsImageDomainRestrained){
-    return TPoint::diagonal(0);
-  }
-  else {
-    // searching the farthest point of the border domain
-    double maxDistance = 0;
-    TPoint ptMax = TPoint::diagonal(0);
-    for (auto p: myDomainController().myImage.domain()){
-      if (myDomainController().myDistanceImage(p) >= maxDistance){
-        ptMax = p;
-        maxDistance = myImageDist(p);
-      }
-    }
-    return ptMax;
-  }
+typename CoronaryArteryTree<DomCtr, TDim>::TDomainPoint
+CoronaryArteryTree<DomCtr,TDim>::getDomainCenter() const {
+  return myDomainController().myCenter;
 }
 
 template<typename DomCtr, int TDim >

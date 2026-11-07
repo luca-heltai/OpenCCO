@@ -120,6 +120,11 @@ root-relative traversal must use the explicit root, not assume node zero.
 This representation is separate from `CoronaryArteryTree`: inserting imported
 nodes directly into its mutable arrays is **not** an anatomy-preservation API.
 Its current optimization updates global length factors, radii and resistances.
+Domain queries now use the controller's sampled point type: continuous
+controllers retain real-valued SI coordinates, while image masks retain integer
+voxel queries. Initialization and `getDomainCenter()` likewise preserve the
+configured center. This corrects integer truncation; it does not add a tissue
+mesh controller or anatomical immutability.
 Protecting fixed geometry and radius traces, constraining attachments, handling
 other-role obstacles and exporting generated-vs-imported provenance are still
 required before anatomical growth is accepted.
