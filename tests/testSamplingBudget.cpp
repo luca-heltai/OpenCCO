@@ -47,9 +47,19 @@ template<int dim> void testLastPlacementSearch() {
   tree.my_qPerf=.002; tree.my_pDrop=400.; tree.my_mu=.00371;
   tree.my_pTerm=0.; tree.my_pPerf=400.; tree.myRsupp=1.;
   tree.updateResistanceFromRoot(); tree.updateRootRadius();
+  auto explicitTree=tree;
+  const auto point=domain.randomPoint(); domain.calls=0;
+  require(ExpandTreeHelpers::tryAddPoint(explicitTree,point,false,[](const auto &) { return true; }),
+          "Explicit equilateral site failed native insertion");
   require(ExpandTreeHelpers::expandTree(tree,false,1,1) &&
           tree.myKTerm==2 && domain.calls==1,
           "Success on the sole/final placement search was not reported");
+  for (unsigned int i=0; i<tree.myVectSegments.size(); ++i)
+    require(tree.myVectSegments[i].myCoordinate==explicitTree.myVectSegments[i].myCoordinate &&
+            tree.myVectSegments[i].myRadius==explicitTree.myVectSegments[i].myRadius,
+            "Sampled and explicit native insertion disagree");
+  require(!ExpandTreeHelpers::tryAddPoint(explicitTree,point,false,[](const auto &) { return true; }),
+          "Explicit insertion exceeded the requested terminal count");
 }
 
 void testTerminalBookkeeping() {

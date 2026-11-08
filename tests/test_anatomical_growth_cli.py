@@ -131,16 +131,20 @@ class AnatomicalGrowthCLI(unittest.TestCase):
             self.assertIn("unit flow fraction", result.stderr)
             allocation.write_text("node,terminals,flow_fraction\n2,3,.25\n3,5,.75\n")
             command[-1] = str(directory/"radius-matched")
-            command += ["--match-attachment-radius"]
+            command += ["--match-attachment-radius", "--local-candidates", "64"]
             result = subprocess.run(command, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr[-2000:] + result.stdout[-2000:])
             summary = json.loads((directory/"radius-matched/summary.json").read_text())
             self.assertFalse(summary["pressure_drop_prescribed"])
+            self.assertEqual(summary["local_candidate_budget"], 64)
+            local_insertions = 0
             for node in [2, 3]:
                 record = json.loads((directory/f"radius-matched/attachment-{node}.json").read_text())
                 self.assertEqual(record["inlet_radius_m"], .0002)
                 self.assertGreater(record["required_pressure_drop_pa"], 0.)
                 self.assertNotEqual(record["required_pressure_drop_pa"], 400.)
+                local_insertions += record["candidate_counts"].get("local_insertions", 0)
+            self.assertGreater(local_insertions, 0)
 
 
 if __name__ == "__main__":

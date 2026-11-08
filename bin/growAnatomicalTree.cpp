@@ -11,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <random>
 #include <sstream>
 
 using Point = DGtal::PointVector<3, double>;
@@ -164,6 +165,39 @@ struct Filter {
     return true;
   }
 };
+
+bool tryLocalSite(Tree &tree, Mask &mask, Filter &filter, unsigned int budget,
+                  std::mt19937 &random) {
+  static const auto offsets=[] {
+    std::vector<Mask::TPointI> result;
+    for (const double radius : {1.25,2.5,5.,10.}) {
+      const auto sphere=GeomHelpers::pointsOnSphere<Mask::TPointI,Mask::TDGset>(Mask::TPointI(),radius);
+      result.insert(result.end(),sphere.begin(),sphere.end());
+    }
+    return result;
+  }();
+  auto proposals=offsets;
+  auto terminals=tree.myVectTerminals;
+  std::shuffle(proposals.begin(),proposals.end(),random);
+  std::shuffle(terminals.begin(),terminals.end(),random);
+  if (terminals.empty()) throw std::runtime_error("Local proposals require tissue terminals");
+  const std::size_t count=std::min<std::size_t>(budget,terminals.size()*proposals.size());
+  std::set<std::array<int,3>> visited;
+  for (std::size_t trial=0; trial<count; ++trial) {
+    const auto &anchor=tree.myVectSegments[terminals[trial%terminals.size()]].myCoordinate;
+    auto point=proposals[trial/terminals.size()];
+    for (unsigned int j=0; j<3; ++j) point[j]+=static_cast<int>(std::lround(anchor[j]));
+    ++filter.counts["local_proposals"];
+    if (!visited.insert(std::array<int,3>{{point[0],point[1],point[2]}}).second) continue;
+    if (!mask.isInside(point) || mask.myDistanceImage(point)<mask.myMinDistanceToBorder) continue;
+    if (ExpandTreeHelpers::tryAddPoint(tree,Point(point[0],point[1],point[2]),false,
+                                       [&](Tree &candidate) { return filter(candidate); })) {
+      ++filter.counts["local_insertions"];
+      return true;
+    }
+  }
+  return false;
+}
 }
 
 int main(int argc, char **argv) {
@@ -174,6 +208,7 @@ int main(int argc, char **argv) {
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
   unsigned int target = 64, seed = 23, searches = 100, samples = 1000;
   bool matchRadius = false;
+  unsigned int localCandidates = 0;
   app.add_option("--input", input)->required();
   app.add_option("--mask", maskPath)->required();
   app.add_option("--output", output)->required();
@@ -189,6 +224,7 @@ int main(int argc, char **argv) {
   app.add_option("--seed", seed);
   app.add_option("--searches", searches);
   app.add_option("--samples", samples);
+  app.add_option("--local-candidates", localCandidates, "Bounded explicit local proposals per insertion;0 keeps native sampling");
   app.add_option("--obstacles", obstacleFiles)->expected(-1);
   app.add_option("--grown-obstacles", grownFiles)->expected(-1);
   CLI11_PARSE(app, argc, argv);
@@ -196,7 +232,7 @@ int main(int argc, char **argv) {
     if (!std::isfinite(pitch) || pitch <= 0. || !std::isfinite(flow) || flow <= 0. ||
         !std::isfinite(pressureDrop) || pressureDrop <= 0. || !std::isfinite(viscosity) || viscosity <= 0. ||
         target < 1 || target > 1000000 || searches < 1 || searches > 1000000 ||
-        samples < 1 || samples > 1000000)
+        samples < 1 || samples > 1000000 || localCandidates > 1000000)
       throw std::runtime_error("Require finite positive physical parameters and budgets");
     const Point origin(originValues[0], originValues[1], originValues[2]);
     if (!std::isfinite(origin.norm())) throw std::runtime_error("Invalid physical origin");
@@ -300,6 +336,7 @@ int main(int argc, char **argv) {
         throw std::runtime_error("Source allocation must cover every Grow node, total target and unit flow fraction");
     }
     srand(seed);
+    std::mt19937 localRandom(seed);
     bool complete = true;
     std::size_t processed = 0;
     for (std::size_t part = 0; part < attachments.size(); ++part) {
@@ -362,8 +399,22 @@ int main(int argc, char **argv) {
       } else {
         for (unsigned int chunk = std::min(16u, quota);; chunk = std::min(chunk+16, quota)) {
           tree->my_NTerm = chunk;
-          const bool grown = ExpandTreeHelpers::expandTree(*tree, false, searches, samples,
-                                                          [&](Tree &candidate) { return filter(candidate); });
+          bool grown;
+          if (localCandidates == 0) {
+            grown=ExpandTreeHelpers::expandTree(*tree,false,searches,samples,
+                                               [&](auto &candidate) { return filter(candidate); });
+          } else {
+            const auto goal=tree->my_NTerm;
+            while (tree->myKTerm<goal) {
+              if (tryLocalSite(*tree,mask,filter,localCandidates,localRandom)) continue;
+              tree->my_NTerm=tree->myKTerm+1;
+              const bool added=ExpandTreeHelpers::expandTree(*tree,false,searches,samples,
+                                                   [&](auto &candidate) { return filter(candidate); });
+              tree->my_NTerm=goal;
+              if (!added) break;
+            }
+            grown=tree->myKTerm==goal;
+          }
           auto snapshot = network;
           snapshot.append(attachment, *tree, origin, pitch);
           writeNetwork(std::filesystem::path(output)/("checkpoint-"+std::to_string(part)+"-"+
@@ -407,6 +458,7 @@ int main(int argc, char **argv) {
             << (complete ? "true" : "false") << ",\"processed_attachments\":" << processed
             << ",\"imported_edges\":" << source.edges.size() << ",\"flow_m3_s\":" << flow
             << ",\"local_pressure_drop_pa\":" << pressureDrop << ",\"viscosity_pa_s\":" << viscosity
+            << ",\"local_candidate_budget\":" << localCandidates
             << ",\"pressure_drop_prescribed\":" << (matchRadius ? "false" : "true")
             << ",\"wall_model\":\"" << (surface ? "original-stl-lipschitz" : "mask-l3-lower-bound")
             << "\",\"physical_length_factor\":1,\"coupled_ready\":false}\n";

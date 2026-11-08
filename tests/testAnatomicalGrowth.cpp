@@ -7,6 +7,31 @@ void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+void testAcceptedCandidateScoring() {
+  using Point=DGtal::PointVector<3,double>;
+  CircularDomainCtrl<3> domain(50.,Point());
+  auto tree=OpenCCO::seedAnatomicalSubtree(domain,Point(),Point(5.,0.,0.),{3,1000.,.003,400.,.00371});
+  require(ExpandTreeHelpers::tryAddPoint(tree,Point(2.5,std::sqrt(18.75),0.),false,
+                                       [](const auto &) { return true; }),"Scoring fixture initialization");
+  unsigned int calls=0;
+  double maximum=0., minimum=std::numeric_limits<double>::infinity();
+  require(ExpandTreeHelpers::tryAddPoint(tree,Point(2.5,1.4,5.),false,[&](auto &candidate) {
+    ++calls;
+    const double before=candidate.computeTotalVolume(1);
+    maximum=std::max(maximum,before); minimum=std::min(minimum,before);
+    // Invert the original ordering: stale-volume scoring must pick wrongly.
+    const double scale=std::sqrt((1e-8/before)/before);
+    for (unsigned int i=1; i<candidate.myVectSegments.size(); ++i)
+      candidate.myVectSegments[i].myRadius*=scale;
+    candidate.myVectSegments[0].myRadius=before; // sentinel-only selection witness
+    return true;
+  }),"Scoring fixture has no admissible third site");
+  require(calls>1 && maximum-minimum>1e-12 && tree.myVectSegments[0].myRadius==maximum,
+          "Selection used stale pre-callback volume instead of accepted candidate score");
+  require(std::abs(tree.computeTotalVolume(1)-1e-8/maximum)<1e-18,
+          "Selected physical volume disagrees with callback scoring oracle");
+}
+
 void testNativeSeparationCertificate() {
   using Point = DGtal::PointVector<3,double>;
   CircularDomainCtrl<3> domain(10.,Point());
@@ -77,6 +102,7 @@ int main() {
   try {
     testMeasuredRadius();
     testNativeSeparationCertificate();
+    testAcceptedCandidateScoring();
     OpenCCO::AnatomicalTree source;
     source.role = "portal";
     source.nodes = {{{{.1, .2, .3}}, .001, true, false},

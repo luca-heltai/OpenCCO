@@ -158,6 +158,15 @@ make this distinction explicit. No generated physical segment may violate the
 native length-at-least-diameter condition after normalization. Actual coupled
 flow feasibility remains a separate check; this is not physiological calibration.
 
+`--local-candidates N` enables at most N explicit lattice proposals per insertion
+near existing generated tips, using the same digital-sphere facility as native
+initialization. It falls back to the native sampled search. The default0 retains
+sampled growth. Explicit sites bypass only the random sampler's density heuristic,
+not lumen clearance, native optimization, normalized diameter checks, duplicate
+rejection, wall certificates or source/cross-role collision checks. Local proposal
+and insertion counts are recorded. This adds no tissue-domain controller and
+makes no coverage claim without the independent audit.
+
 For ports close to the organ wall, build with `-DOPENCCO_WITH_VTK=ON` and
 pass `--surface /absolute/path/to/liver.stl` (metres). The mask remains the native
 sampler/optimizer domain. The final capsule-wall gate instead uses VTK's existing
