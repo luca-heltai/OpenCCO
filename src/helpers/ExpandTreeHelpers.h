@@ -55,54 +55,81 @@ initFirtElemTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
 }
 
 
-template<typename DomCtr, int TDim>
-inline
-bool
-expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
-           bool verbose = false, unsigned int nbMaxSearch = 100,
-           unsigned int nbTryCandidate = 1000)
+// Insert one explicit site through the same native optimizer and acceptance
+// gate as sampled growth. Proposal spacing is a sampling policy; lumen
+// clearance and all native/caller geometry checks still apply here.
+template<typename DomCtr, int TDim, typename AcceptCandidate>
+inline bool
+tryAddPoint(CoronaryArteryTree<DomCtr,TDim> &tree,
+            const typename CoronaryArteryTree<DomCtr,TDim>::TPointD &point,
+            bool verbose, AcceptCandidate acceptCandidate)
+{
+    if (tree.myKTerm >= tree.my_NTerm) return false;
+    for (unsigned int j=0; j<TDim; ++j)
+        if (!std::isfinite(point[j])) return false;
+    for (unsigned int i=1; i<tree.myVectSegments.size(); ++i)
+        if (!(tree.getProjDistance(i,point) > tree.myVectSegments[i].myRadius)) return false;
+    bool found=false;
+    auto best=tree;
+    double bestVolume=0.;
+    for (const auto index : tree.getN_NearestSegments(point,tree.myNumNeighbor)) {
+        const auto center=tree.findBarycenter(point,index);
+        if (tree.isIntersectingTree(point,center,tree.myVectSegments[index].myRadius,index)) {
+            if (tree.myCandidateDiagnostics) ++(*tree.myCandidateDiagnostics)["prefilter_collision"];
+            continue;
+        }
+        auto candidate=tree;
+        if (!candidate.isAddable(point,index,100,.01,candidate.myNumNeighbor,verbose)) continue;
+        candidate.updateLengthFactor();
+        candidate.updateResistanceFromRoot();
+        candidate.updateRootRadius();
+        if (!acceptCandidate(candidate)) continue;
+        const double volume=candidate.computeTotalVolume(1);
+        if (!found || volume<bestVolume) {
+            bestVolume=volume;
+            best=candidate;
+        }
+        found=true;
+    }
+    if (found) tree=best;
+    return found;
+}
+
+template<typename DomCtr, int TDim, typename AcceptCandidate>
+inline bool
+expandTree(CoronaryArteryTree<DomCtr,TDim> &tree,
+           bool verbose, unsigned int nbMaxSearch,
+           unsigned int nbTryCandidate, AcceptCandidate acceptCandidate)
 {
     // The caller owns the RNG seed. Never restart it from wall-clock time here.
-    while (aTree.myKTerm < aTree.my_NTerm) {
-        DGtal::trace.progressBar(aTree.myKTerm, aTree.my_NTerm);
-        bool found = false;
-        CoronaryArteryTree< DomCtr, TDim > best = aTree;
-        double bestVolume = 0.0;
-        for (unsigned int search = 0; search < nbMaxSearch && !found; ++search) {
-            const auto sample = aTree.tryGenerateNewLocation(nbTryCandidate);
-            if (!sample.second) continue;
-            const auto &point = sample.first;
-            const auto nearest = aTree.getN_NearestSegments(point, aTree.myNumNeighbor);
-            for (const auto index : nearest) {
-                const auto center = aTree.findBarycenter(point, index);
-                if (aTree.isIntersectingTree(point, center,
-                                            aTree.myVectSegments[index].myRadius,
-                                            index)) continue;
-                auto candidate = aTree;
-                if (!candidate.isAddable(point, index, 100, 0.01,
-                                         candidate.myNumNeighbor, verbose)) continue;
-                const double volume = candidate.computeTotalVolume(1);
-                if (!found || volume < bestVolume) {
-                    bestVolume = volume;
-                    best = candidate;
-                }
-                found = true;
+    while (tree.myKTerm<tree.my_NTerm) {
+        DGtal::trace.progressBar(tree.myKTerm,tree.my_NTerm);
+        bool found=false;
+        for (unsigned int search=0; search<nbMaxSearch && !found; ++search) {
+            const auto sample=tree.tryGenerateNewLocation(nbTryCandidate);
+            if (!sample.second) {
+                if (tree.myCandidateDiagnostics) ++(*tree.myCandidateDiagnostics)["sampling_budget"];
+                continue;
             }
+            found=tryAddPoint(tree,sample.first,verbose,acceptCandidate);
         }
         if (!found) break;
-        aTree = best;
-        aTree.updateLengthFactor();
-        aTree.updateResistanceFromRoot();
-        aTree.updateRootRadius();
     }
-    const bool complete = aTree.myKTerm == aTree.my_NTerm;
+    const bool complete=tree.myKTerm==tree.my_NTerm;
     if (!complete)
-        DGtal::trace.warning() << "CCO budget exhausted: partial tree ("
-                              << aTree.myKTerm << " of " << aTree.my_NTerm
-                              << " requested terminals)" << std::endl;
+        DGtal::trace.warning()<<"CCO budget exhausted: partial tree ("
+                              <<tree.myKTerm<<" of "<<tree.my_NTerm
+                              <<" requested terminals)"<<std::endl;
     return complete;
 }
 
+// Legacy callers retain the same candidate selection and final normalization.
+template<typename DomCtr, int TDim>
+inline bool expandTree(CoronaryArteryTree<DomCtr, TDim> &tree,
+                       bool verbose = false, unsigned int searches = 100,
+                       unsigned int samples = 1000) {
+    return expandTree(tree, verbose, searches, samples, [](const auto &) { return true; });
+}
 
 template<typename TImage >
 std::vector<std::vector<typename TImage::Domain::Point > >

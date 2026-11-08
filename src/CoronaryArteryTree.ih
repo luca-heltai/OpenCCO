@@ -114,7 +114,18 @@ CoronaryArteryTree<DomCtr, TDim>::updateRootRadius()
 {
   unsigned int idRoot = 1;
   double Qpk = myVectSegments[idRoot].myKTerm*my_qTerm;
-  double rRoot = pow((myVectSegments[idRoot].myResistance*Qpk)/my_pDrop,0.25);
+  if (!std::isfinite(myFixedRootRadius) || myFixedRootRadius < 0.)
+    throw std::runtime_error("Root radius constraint must be finite and nonnegative");
+  double rRoot;
+  if (myFixedRootRadius > 0.) {
+    rRoot = myFixedRootRadius;
+    my_pDrop = myVectSegments[idRoot].myResistance*Qpk/std::pow(rRoot, 4);
+    if (!std::isfinite(my_pDrop) || my_pDrop <= 0.)
+      throw std::runtime_error("Invalid derived pressure drop at prescribed inlet radius");
+    my_pPerf = my_pTerm+my_pDrop;
+  } else {
+    rRoot = pow((myVectSegments[idRoot].myResistance*Qpk)/my_pDrop,0.25);
+  }
   myVectSegments[idRoot].myRadius = rRoot;
   updateRadius(idRoot, 1.0);
 }
@@ -155,6 +166,10 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
                               unsigned int nbIter, double tolerance,
                               unsigned int nbNeibour, bool verbose)
 {
+  const auto rejectNative = [&](const char *reason) {
+    if (myCandidateDiagnostics) ++(*myCandidateDiagnostics)[reason];
+    return false;
+  };
   const auto domainPoint = [](const TPointD &point) {
     TDomainPoint result;
     for (auto i = 0; i < TDim; ++i)
@@ -168,18 +183,18 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
   
   if (!myDomainController().isInside(newCenterDom))
   {
-      return false;
+      return rejectNative("initial_center_outside");
   }
     
   if (!myDomainController().checkNoIntersectDomain(pDom, newCenterDom))
   {
-      return false;
+      return rejectNative("initial_newline_outside");
   }
   
   if(!myDomainController().checkNoIntersectDomain(pSegIndDom,
                                                  newCenterDom))
   {
-      return false;
+      return rejectNative("initial_oldline_outside");
   }
       
   // Creation a copy of parent segment
@@ -189,7 +204,7 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
 
   if(!myDomainController().checkNoIntersectDomain(pParentDom,
                                                 newCenterDom))
-      return false;
+      return rejectNative("initial_rootline_outside");
   
   // Creation of the left child
   Segment sNewLeft;
@@ -228,7 +243,7 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     res1 = kamyiaOptimization(pCurrent, pParent, sCurrent.myRadius,
                               sNewLeft, sNewRight, 1, pOpt, r0, r1, r2);
     if(!res1) //Kamyia does not have solution
-      return false;
+      return rejectNative("optimizer_failure");
     
     //Check for middle seg
     int idSegPar = myVectParent[segIndex];
@@ -236,19 +251,19 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     int idR = myVectChildren[idSegPar].second;
     res2 = isIntersectingTree(pOpt, pParent, r0, std::make_tuple(idL, idR, idSegPar));
     if(res2) //there is intersection between segments
-      return false;
+      return rejectNative("center_collision");
     
     //Check for left seg
     idL = myVectChildren[segIndex].first;
     idR = myVectChildren[segIndex].second;
     res2 = isIntersectingTree(pOpt, sNewLeft.myCoordinate, r1,  std::make_tuple(segIndex, idL, idR));
     if(res2) //there is intersection between segments
-      return false;
+      return rejectNative("old_child_collision");
       
     //Check for right seg
     res2 = isIntersectingTree(pOpt, p, r2,  std::make_tuple(segIndex,-1,-1));
     if(res2) //there is intersection between segments
-      return false;
+      return rejectNative("new_child_collision");
     
     const auto pParentDom = domainPoint(pParent);
     const auto pOptDom = domainPoint(pOpt);
@@ -257,17 +272,17 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
 
     if(!myDomainController().isInside(pOptDom))
     { //resulting point is out of the domain
-      return false;
+      return rejectNative("optimized_center_outside");
     }
    
     
     //resulting segments intersect the domaine
     if( !myDomainController().checkNoIntersectDomain(pParentDom, pOptDom)) //Center segment
-      return false;
+      return rejectNative("optimized_rootline_outside");
     if(!myDomainController().checkNoIntersectDomain(sNewLeftDom, pOptDom)) //Left segment
-      return false;
+      return rejectNative("optimized_oldline_outside");
     if(!myDomainController().checkNoIntersectDomain(sNewRightDom, pOptDom)) //Right segment
-      return false;
+      return rejectNative("optimized_newline_outside");
     
     //Otherwise, iterate for the optimisation process
     CoronaryArteryTree cTree1 = *this;
@@ -283,8 +298,10 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     // Update for the new parent of the new left segment
     unsigned int leftGrandChildIndex = cTree1.myVectChildren[myVectSegments[segIndex].myIndex].first;
     unsigned int rightGrandChildIndex = cTree1.myVectChildren[myVectSegments[segIndex].myIndex].second;
-    cTree1.myVectParent[leftGrandChildIndex] = sNewLeft.myIndex;
-    cTree1.myVectParent[rightGrandChildIndex] = sNewLeft.myIndex;
+    if (leftGrandChildIndex != 0)
+      cTree1.myVectParent[leftGrandChildIndex] = sNewLeft.myIndex;
+    if (rightGrandChildIndex != 0)
+      cTree1.myVectParent[rightGrandChildIndex] = sNewLeft.myIndex;
     
     // Update of the child of the new left segment (sNewLeft)
     cTree1.myVectChildren[sNewLeft.myIndex].first = leftGrandChildIndex;
@@ -295,6 +312,13 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     cTree1.myVectChildren.push_back(std::pair<unsigned int, unsigned int>(0,0));
     cTree1.myVectParent.push_back(segIndex);
     cTree1.myVectTerminals.push_back(sNewRight.myIndex);
+    if (myVectChildren[segIndex] == std::make_pair(0u,0u)) {
+      const auto oldTerminal = std::find(cTree1.myVectTerminals.begin(),
+                                         cTree1.myVectTerminals.end(),segIndex);
+      if (oldTerminal == cTree1.myVectTerminals.end())
+        throw std::runtime_error("Generated leaf is missing from the terminal index");
+      *oldTerminal = sNewLeft.myIndex;
+    }
     
     // Update center segment
     cTree1.myVectSegments[segIndex].myCoordinate = pOpt;
@@ -329,7 +353,15 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
         double l0 = (pOpt - pParent).norm()*myLengthFactor;
         double l1 = (pOpt - sNewLeft.myCoordinate).norm()*myLengthFactor;
         double l2 = (pOpt - sNewRight.myCoordinate).norm()*myLengthFactor;
-        res3 = (2*r0<=l0) && (2*r1<=l1) && (2*r2<=l2);
+        if (myFixedRootRadius > 0.) {
+          // The constrained geometry is the normalized tree, not the local
+          // optimizer's provisional radius scale.
+          res3 = 2*cTree1.myVectSegments[segIndex].myRadius <= l0 &&
+                 2*cTree1.myVectSegments[sNewLeft.myIndex].myRadius <= l1 &&
+                 2*cTree1.myVectSegments[sNewRight.myIndex].myRadius <= l2;
+        } else {
+          res3 = (2*r0<=l0) && (2*r1<=l1) && (2*r2<=l2);
+        }
         // If there is a solution, then save the result
         if(res3)
         {
@@ -355,7 +387,9 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
   }
     
   
-  return isDone;
+  if (!isDone) return rejectNative(res3 ? "iteration_budget" : "length_diameter");
+  if (myCandidateDiagnostics) ++(*myCandidateDiagnostics)["accepted"];
+  return true;
 }
 
 
@@ -412,6 +446,11 @@ CoronaryArteryTree<DomCtr, TDim>::isIntersectingTree(const TPointD &ptA, const T
       TPointD ptC = s.myCoordinate;
       TPointD ptD = myVectSegments[myVectParent[s.myIndex]].myCoordinate;
       if(GeomHelpers::isIntersecting<TDim>(ptA, ptB, r, ptC, ptD, s.myRadius)) {
+        if (mySegmentSeparationCertificate &&
+            mySegmentSeparationCertificate(ptA, ptB, r, ptC, ptD, s.myRadius)) {
+          if (myCandidateDiagnostics) ++(*myCandidateDiagnostics)["separation_certificates"];
+          continue;
+        }
         //std::cout<<"Seg bug :"<<s.myIndex<<" ==> seg expt :"<<idExcept1<<", "<<idExcept2<<", "<<idExcept3<<std::endl;
         return true;
       }
@@ -596,24 +635,16 @@ CoronaryArteryTree<DomCtr, TDim>::tryGenerateNewLocation(unsigned int nbTrials) 
 template< typename DomCtr, int TDim >
 std::pair<typename CoronaryArteryTree<DomCtr, TDim>::TPointD, bool>
 CoronaryArteryTree<DomCtr, TDim>::generateALocation(double myDThresold) {
-    TPointD res;
-    res = myDomainController().randomPoint();
-    bool isComp = true;
-    bool isComp2 = true;
-    unsigned int id = 1;
-    
-    while ( isComp && id < myVectTerminals.size() ) {
-      isComp = (myVectSegments[myVectTerminals[id]].myCoordinate - res).norm() > myDThresold;
-     //isComp = getProjDistance(myVectTerminals[id], res) > myDThresold;
-      id++;
-    }
-    
-    //generated point must have a certain distance to ALL tree segments
-    while ( isComp2 && id < myVectSegments.size() ) {
-      isComp2 = getProjDistance(myVectSegments[id].myIndex, res) > myVectSegments[id].myRadius;
-      id++;
-    }
-    return  std::pair<TPointD, bool> {res, isComp && isComp2};
+    const TPointD res = myDomainController().randomPoint();
+    for (const auto terminal : myVectTerminals)
+      if (!((myVectSegments[terminal].myCoordinate-res).norm() > myDThresold))
+        return {res,false};
+    // The root sentinel is not a segment. Check every physical segment,
+    // independently of how many terminals the first loop visited.
+    for (unsigned int id=1; id<myVectSegments.size(); ++id)
+      if (!(getProjDistance(id,res) > myVectSegments[id].myRadius))
+        return {res,false};
+    return {res,true};
 }
 
 

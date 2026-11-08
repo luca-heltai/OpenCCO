@@ -3,8 +3,9 @@
 Tracking: [fork issue #5](https://github.com/luca-heltai/OpenCCO/issues/5), following
 [ImmersX #343](https://github.com/luca-heltai/immersx/issues/343).
 
-This first stage imports and validates real vascular trees. It does **not** grow
-them, establish hydraulic feasibility, or run a coupled tissue simulation.
+The import stage validates real vascular trees without growing them. A separate
+experimental growth command is described below; neither stage establishes
+hydraulic feasibility or a successful coupled tissue simulation.
 The existing `generateTree3D` command still starts from an artificial segment;
 it does not consume these anatomical inputs yet.
 
@@ -128,6 +129,105 @@ mesh controller or anatomical immutability.
 Protecting fixed geometry and radius traces, constraining attachments, handling
 other-role obstacles and exporting generated-vs-imported provenance are still
 required before anatomical growth is accepted.
+
+## Experimental growth from imported tips
+
+`growAnatomicalTree` now attaches native CCO subtrees at existing `Grow` endpoints
+without optimizing the imported vessels. It reuses `ImageMaskDomainCtrl<3>`;
+no new tissue controller is required. Original coordinates, connectivity and
+both endpoint-radius traces are retained exactly in the exported prefix.
+The new subtree root is fixed at the original tip, not the legacy `--posInit`
+location heuristic.
+
+The command requires the `.anatomy` input, existing `.vol` mask, world-coordinate
+origin/pitch, physical flow in m³/s and an explicit local pressure-drop budget in
+Pa. Pass all three original trees through `--obstacles`, and previously grown
+`segments.csv` files through `--grown-obstacles` when growing subsequent roles.
+`--allocation FILE` optionally supplies one CSV row `node,terminals,flow_fraction`
+for every enabled attachment. Quotas must sum to the requested total and positive
+flow fractions must sum to one. This separates geometric terminal counts from
+physical design-flow fractions; equal flow through a tiny and a large anatomical
+outlet is not assumed. It does not by itself establish a valid coupled reference.
+
+`--match-attachment-radius` optionally holds each generated inlet lumen at its
+measured attachment radius. The same Poiseuille/Murray equations then derive the
+required drop from the design flow and current geometry, rather than inflating
+the inlet to meet the input drop. The latter is only an initial sizing input in
+this mode: `pressure_drop_prescribed:false` and per-attachment required pressures
+make this distinction explicit. No generated physical segment may violate the
+native length-at-least-diameter condition after normalization. Actual coupled
+flow feasibility remains a separate check; this is not physiological calibration.
+
+`--local-candidates N` enables at most N explicit lattice proposals per insertion
+near existing generated tips, using the same digital-sphere facility as native
+initialization, only after the native global sampled stage exhausts its budget.
+Global proposals stay primary to avoid local clustering. The default0 retains
+sampled growth. Explicit sites bypass only the random sampler's density heuristic,
+not lumen clearance, native optimization, normalized diameter checks, duplicate
+rejection, wall certificates or source/cross-role collision checks. Local proposal
+and insertion counts are recorded. This adds no tissue-domain controller and
+makes no coverage claim without the independent audit.
+
+For ports close to the organ wall, build with `-DOPENCCO_WITH_VTK=ON` and
+pass `--surface /absolute/path/to/liver.stl` (metres). The mask remains the native
+sampler/optimizer domain. The final capsule-wall gate instead uses VTK's existing
+closed-STL signed distance, adaptive 1-Lipschitz interval bounds and unchanged
+positive clearance. Open/nonmanifold surfaces fail. An unresolved4096-evaluation
+segment budget is conservatively rejected and counted; endpoint checks alone
+never certify a segment. This avoids demanding a full-organ submillimetre mask
+merely to certify a valid near-wall anatomical attachment.
+
+All output directories must be new. The executable writes `nodes.csv`,
+`segments.csv`, attachment diagnostics and materialized snapshots at16-terminal
+increments. New snapshots also include versioned `subtrees/attachment-ID.cco`
+geometry records. `--bootstrap DIRECTORY` binds these to the exact saved
+`source.anatomy`, validates native binary topology and all physical gates, and
+continues under the explicitly supplied current quota/flow/viscosity inputs.
+Gamma must match. Inlet-sizing mode changes are rejected unless explicitly
+requested with `--resize-bootstrap`; that option recomputes generated radii under
+the requested canonical pressure-drop or measured-lumen mode, retaining every
+normalized diameter and physical gate. Imported radius traces are never changed
+or averaged with a different generated-side trace. All other restored subtrees remain
+obstacles, and partial output retains even unprocessed accepted branches.
+
+`--relax-generated N` additionally permits up to N parent-first length-repair
+sweeps on a disposable generated candidate. It never moves anatomical root0,
+recomputes the same Poiseuille/Murray sizing, and limits repair motion to one
+initial inlet diameter. All physical gates are checked afterwards; failed or
+unconverged proposals are rejected. Bootstrap repairs happen before registering
+and jointly validating restored obstacles. Trial repair motion and sweep counts
+are reported separately from the native optimizer's usual node relocation.
+
+This restores generated geometry, not opaque optimizer/RNG execution state.
+Generated lattice coordinates are recovered within arithmetic roundoff; original
+anatomical nodes are never snapped. Older CSV-only inspection snapshots lack
+these records and are not retrospectively called restart checkpoints.
+
+Generated-subtree computations use voxel coordinates with
+`Q_native = Q_physical / pitch³`, viscosity in Pa·s and physical length factor 1.
+The legacy executables retain their length-scaling policy. Imported vessels
+are never rescaled. Generated branches are cylindrical native CCO outputs;
+imported branches retain their two original endpoint radii. A shared junction
+may therefore have different radius traces on its incident branches.
+
+Before committing a candidate, the application checks distinct generated node
+positions, nonincident self/source collisions and conservative voxel-domain wall
+margins. Max-endpoint-radius capsules provide the initial collision bound.
+When these overlap, the existing ImmersX support-plane predicate for flat-ended,
+linearly tapered frusta can certify actual separation. The port preserves its
+roundoff guards and conservative rejection when no witness is found; it does
+not lower a physical clearance threshold. Exact source revision and licensing
+are recorded in `src/helpers/FrustumGeometry.h` and `licenses/`.
+Only the source edge incident to an attachment is exempted for the directly
+attached generated branch, whose initial direction must remain outward.
+Source vessels are not checked against each other or silently repaired.
+
+`role_growth_complete` means the requested geometric tip count was reached.
+`coupled_ready` remains false: cross-role terminal matching, explicit treatment
+of unused anatomical leaves, hydraulic feasibility, original-surface clearance,
+archive conversion and actual coupled-loader/solver checks are still required.
+Computational sizing flows and local pressure-drop budgets must be recorded;
+they are not automatically an adopted physiological configuration.
 
 ## Remaining scientific gates
 

@@ -1,4 +1,6 @@
 #include "CoronaryArteryTree.h"
+#include "AnatomicalGrowth.h"
+#include <set>
 
 #include <iostream>
 #include <stdexcept>
@@ -21,8 +23,89 @@ void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+template<int dim> struct FixedCandidateDomain {
+  using TPoint = DGtal::PointVector<dim,double>;
+  unsigned int calls=0;
+  TPoint randomPoint() {
+    ++calls;
+    TPoint p; p[0]=2.5; p[1]=std::sqrt(18.75); return p;
+  }
+  bool isInside(const TPoint &) { return true; }
+  bool checkNoIntersectDomain(const TPoint &,const TPoint &) { return true; }
+};
+
+template<int dim> void testLastPlacementSearch() {
+  FixedCandidateDomain<dim> domain;
+  CoronaryArteryTree<FixedCandidateDomain<dim>,dim> tree(domain);
+  tree.myVectSegments.resize(2);
+  tree.myVectSegments[0].myKTerm=0;
+  tree.myVectSegments[1].myIndex=1;
+  tree.myVectSegments[1].myCoordinate[0]=5.;
+  tree.myVectSegments[1].myFlow=.001;
+  tree.myVectParent={0,0}; tree.myVectChildren={{0,0},{0,0}};
+  tree.myVectTerminals={1}; tree.my_NTerm=2; tree.my_qTerm=.001;
+  tree.my_qPerf=.002; tree.my_pDrop=400.; tree.my_mu=.00371;
+  tree.my_pTerm=0.; tree.my_pPerf=400.; tree.myRsupp=1.;
+  tree.updateResistanceFromRoot(); tree.updateRootRadius();
+  auto explicitTree=tree;
+  const auto point=domain.randomPoint(); domain.calls=0;
+  require(ExpandTreeHelpers::tryAddPoint(explicitTree,point,false,[](const auto &) { return true; }),
+          "Explicit equilateral site failed native insertion");
+  require(ExpandTreeHelpers::expandTree(tree,false,1,1) &&
+          tree.myKTerm==2 && domain.calls==1,
+          "Success on the sole/final placement search was not reported");
+  for (unsigned int i=0; i<tree.myVectSegments.size(); ++i)
+    require(tree.myVectSegments[i].myCoordinate==explicitTree.myVectSegments[i].myCoordinate &&
+            tree.myVectSegments[i].myRadius==explicitTree.myVectSegments[i].myRadius,
+            "Sampled and explicit native insertion disagree");
+  require(!ExpandTreeHelpers::tryAddPoint(explicitTree,point,false,[](const auto &) { return true; }),
+          "Explicit insertion exceeded the requested terminal count");
+}
+
+void testTerminalBookkeeping() {
+  BudgetDomain domain;
+  auto tree = OpenCCO::seedAnatomicalSubtree(domain, BudgetDomain::TPoint(),
+      BudgetDomain::TPoint(5.,0.,0.), {2,1000.,.002,400.,.00371});
+  require(tree.isAddable(BudgetDomain::TPoint(0.,5.,0.),1,100,.01,20,false),
+          "Controlled leaf bifurcation did not succeed");
+  std::set<unsigned int> leaves;
+  for (unsigned int i=1; i<tree.myVectSegments.size(); ++i)
+    if (tree.myVectChildren[i] == std::make_pair(0u,0u)) leaves.insert(i);
+  require(leaves == std::set<unsigned int>(tree.myVectTerminals.begin(),tree.myVectTerminals.end()),
+          "Bifurcation retained an internal node and lost the copied tissue leaf");
+  require(tree.myVectTerminals.size() == tree.myKTerm, "Terminal index count mismatch");
+}
+
+void testEveryTerminalAndSegment() {
+  BudgetDomain domain;
+  domain.reject = 0;
+  CoronaryArteryTree<BudgetDomain,3> tree(domain);
+  const std::vector<BudgetDomain::TPoint> points{{-2.,0.,0.},{-1.,0.,0.},{0.,2.,0.},
+                                               {0.,-2.,0.},{2.,-3.,0.},{-2.,-3.,0.}};
+  tree.myVectSegments.resize(points.size());
+  for (unsigned int i=0; i<points.size(); ++i) {
+    tree.myVectSegments[i].myCoordinate = points[i];
+    tree.myVectSegments[i].myIndex = i;
+    tree.myVectSegments[i].myRadius = .1;
+  }
+  tree.myVectParent = {0,0,1,1,3,3};
+  tree.myVectChildren = {{0,0},{2,3},{0,0},{4,5},{0,0},{0,0}};
+  tree.myVectTerminals = {2,4,5};
+  tree.myKTerm = 3;
+  domain.accepted = points[2];
+  require(!tree.generateALocation(.5).second, "Repeated first terminal was sampled");
+  domain.accepted = {-1.5,0.,0.};
+  require(!tree.generateALocation(.5).second, "Proximal segment was skipped after terminal loop");
+  domain.accepted = {0.,2.3,0.};
+  require(!tree.generateALocation(.5).second, "First-terminal spacing threshold was ignored");
+}
+
 int main() {
   try {
+    testLastPlacementSearch<2>();
+    testLastPlacementSearch<3>();
+    testTerminalBookkeeping();
+    testEveryTerminalAndSegment();
     BudgetDomain domain;
     CoronaryArteryTree<BudgetDomain, 3> tree(domain);
     tree.myVectSegments.resize(3);

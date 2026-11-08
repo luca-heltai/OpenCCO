@@ -28,6 +28,11 @@ FIND_PACKAGE(DGtal REQUIRED)
 INCLUDE_DIRECTORIES(${DGTAL_INCLUDE_DIRS})
 LINK_DIRECTORIES(${DGTAL_LIBRARY_DIRS} )
 
+option(OPENCCO_WITH_VTK "Enable original-STL wall certificates with VTK" OFF)
+if(OPENCCO_WITH_VTK)
+  find_package(VTK REQUIRED COMPONENTS CommonCore CommonDataModel FiltersCore IOGeometry)
+endif()
+
 add_subdirectory(tests)
 add_subdirectory(bin)
 add_subdirectory(tools)

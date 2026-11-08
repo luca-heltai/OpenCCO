@@ -73,11 +73,8 @@ class GenerationCLITest(unittest.TestCase):
                 self.assertEqual(again, 0, (replay / "run.log").read_text()[-2000:])
                 self.assertEqual((out / "tree.xml").read_bytes(), (replay / "tree.xml").read_bytes())
 
-    def test_last_allowed_search_counts_as_success(self):
-        for binary in BINARIES:
-            status, out = self.run_tree(binary, 2, ["--searchTrials", "1"])
-            self.assertEqual(status, 0, (out / "run.log").read_text()[-2000:])
-            self.assertEqual(self.actual_terminals(out / "tree.xml"), 2)
+    # Sole/final placement-search success is checked without RNG assumptions
+    # in testSamplingBudget, with controlled2D and3D equilateral fixtures.
 
     def test_partial_tree_is_not_success(self):
         for binary in BINARIES:
