@@ -117,6 +117,14 @@ struct Filter {
       const auto &a = tree.myVectSegments[parent].myCoordinate;
       const auto &b = tree.myVectSegments[i].myCoordinate;
       const double radius = tree.myVectSegments[i].myRadius;
+      Mask::TPointI nativeA, nativeB;
+      for (unsigned int j = 0; j < 3; ++j) {
+        nativeA[j] = static_cast<int>(a[j]);
+        nativeB[j] = static_cast<int>(b[j]);
+      }
+      if (!mask.isInside(nativeA) || !mask.isInside(nativeB) ||
+          (nativeA != nativeB && !mask.checkNoIntersectDomain(nativeA, nativeB)))
+        return reject("mask_query");
       if ((b-a).norm() <= 0.) return reject("degenerate");
       if (tree.myFixedRootRadius > 0. && 2*radius > (b-a).norm()) return reject("short_diameter");
       if (parent == 0 && (b-a).dot(outward) <= 0.) return reject("foldback");

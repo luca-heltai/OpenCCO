@@ -77,6 +77,30 @@ class AnatomicalGrowthCLI(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), content)
 
 
+    @unittest.skipUnless(WITH_SURFACE, "Original-surface build required")
+    def test_seed_inside_stl_but_outside_native_mask_is_not_committed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            mask = cube_mask(directory)
+            anatomy = directory/"near-wall.anatomy"
+            anatomy.write_text("OpenCCOAnatomy 1\nvenous metres\n2 1\n"
+                               ".009 .0025 .015 .0001 1 0\n"
+                               ".010 .0015 .015 .0001 0 1\n0 1\n")
+            output = directory/"grown"
+            command = [str(BINARY), "--input", str(anatomy), "--mask", str(mask),
+                       "--origin", "0", "0", "0", "--pitch", ".001", "--flow", "1e-8",
+                       "--pressure-drop", "400", "--terminals", "2", "--seed", "23",
+                       "--surface", str(Path(__file__).resolve().parent/"data/cube_wall.stl"),
+                       "--match-attachment-radius", "--output", str(output)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:] + result.stdout[-2000:])
+            with (output/"nodes.csv").open() as stream:
+                for node in csv.DictReader(stream):
+                    if node["source_node"] == "-1":
+                        for coordinate in ["x", "y", "z"]:
+                            self.assertGreaterEqual(float(node[coordinate]), .001)
+                            self.assertLess(float(node[coordinate]), .030)
+
     def test_explicit_two_port_allocation(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
