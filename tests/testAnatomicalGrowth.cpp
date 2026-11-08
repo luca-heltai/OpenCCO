@@ -1,9 +1,28 @@
 #include "AnatomicalGrowth.h"
 #include "ExpandTreeHelpers.h"
+#include "FrustumGeometry.h"
 #include <iostream>
 
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
+}
+
+void testNativeSeparationCertificate() {
+  using Point = DGtal::PointVector<3,double>;
+  CircularDomainCtrl<3> domain(10.,Point());
+  auto tree = OpenCCO::seedAnatomicalSubtree(domain,Point(-1.,0.,0.),Point(),{1,1000.,1.,400.,.00371});
+  tree.myVectSegments[1].myRadius = 1.;
+  const Point a(.05,0.,0.), b(1.,0.,0.);
+  require(tree.isIntersectingTree(a,b,1.,std::make_tuple(-1,-1,-1)),
+          "Legacy rounded-capsule behavior changed");
+  tree.mySegmentSeparationCertificate = [](const Point &p, const Point &q, double r,
+                                           const Point &s, const Point &t, double u) {
+    return FrustumGeometry::separated(p,q,{{r,r}},s,t,{{u,u}});
+  };
+  require(!tree.isIntersectingTree(a,b,1.,std::make_tuple(-1,-1,-1)),
+          "Native precheck discarded an analytic flat-cap separating plane");
+  require(tree.isIntersectingTree(Point(-.5,-2.,0.),Point(-.5,2.,0.),1.,std::make_tuple(-1,-1,-1)),
+          "Native separation hook admitted crossing cylinders");
 }
 
 void testMeasuredRadius() {
@@ -57,6 +76,7 @@ void testMeasuredRadius() {
 int main() {
   try {
     testMeasuredRadius();
+    testNativeSeparationCertificate();
     OpenCCO::AnatomicalTree source;
     source.role = "portal";
     source.nodes = {{{{.1, .2, .3}}, .001, true, false},

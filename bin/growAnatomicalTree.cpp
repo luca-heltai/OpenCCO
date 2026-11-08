@@ -323,6 +323,10 @@ int main(int argc, char **argv) {
       const auto makeSeed = [&](const Point &terminal) {
         auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, terminal, parameters);
         candidate.myCandidateDiagnostics = nativeDiagnostics;
+        candidate.mySegmentSeparationCertificate = [](const Point &a, const Point &b, double r,
+                                                       const Point &c, const Point &d, double s) {
+          return FrustumGeometry::separated(a,b,{{r,r}},c,d,{{s,s}});
+        };
         if (matchRadius) candidate.myFixedRootRadius = source.nodes[attachment].radius/pitch;
         return candidate;
       };

@@ -34,6 +34,7 @@
 #include <stdexcept>
 #include <map>
 #include <memory>
+#include <functional>
 
 
 #include <iostream>
@@ -148,6 +149,11 @@ public:
         double myFixedRootRadius = 0.;
         // Optional shared telemetry; copies record identical native decisions.
         std::shared_ptr<std::map<std::string, std::size_t>> myCandidateDiagnostics;
+        // Optional sufficient separation oracle after a legacy capsule hit.
+        // Default callers retain rounded capsules; the anatomical 3D caller
+        // certifies flat-ended frusta and validates the normalized whole tree.
+        std::function<bool(const TPointD &, const TPointD &, double,
+                           const TPointD &, const TPointD &, double)> mySegmentSeparationCertificate;
     // End biological parameters
     //-----------------------------
     

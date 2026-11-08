@@ -439,6 +439,11 @@ CoronaryArteryTree<DomCtr, TDim>::isIntersectingTree(const TPointD &ptA, const T
       TPointD ptC = s.myCoordinate;
       TPointD ptD = myVectSegments[myVectParent[s.myIndex]].myCoordinate;
       if(GeomHelpers::isIntersecting<TDim>(ptA, ptB, r, ptC, ptD, s.myRadius)) {
+        if (mySegmentSeparationCertificate &&
+            mySegmentSeparationCertificate(ptA, ptB, r, ptC, ptD, s.myRadius)) {
+          if (myCandidateDiagnostics) ++(*myCandidateDiagnostics)["separation_certificates"];
+          continue;
+        }
         //std::cout<<"Seg bug :"<<s.myIndex<<" ==> seg expt :"<<idExcept1<<", "<<idExcept2<<", "<<idExcept3<<std::endl;
         return true;
       }
