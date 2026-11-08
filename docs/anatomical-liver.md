@@ -149,6 +149,15 @@ flow fractions must sum to one. This separates geometric terminal counts from
 physical design-flow fractions; equal flow through a tiny and a large anatomical
 outlet is not assumed. It does not by itself establish a valid coupled reference.
 
+For ports close to the organ wall, build with `-DOPENCCO_WITH_VTK=ON` and
+pass `--surface /absolute/path/to/liver.stl` (metres). The mask remains the native
+sampler/optimizer domain. The final capsule-wall gate instead uses VTK's existing
+closed-STL signed distance, adaptive 1-Lipschitz interval bounds and unchanged
+positive clearance. Open/nonmanifold surfaces fail. An unresolved4096-evaluation
+segment budget is conservatively rejected and counted; endpoint checks alone
+never certify a segment. This avoids demanding a full-organ submillimetre mask
+merely to certify a valid near-wall anatomical attachment.
+
 All output directories must be new. The executable writes `nodes.csv`,
 `segments.csv`, attachment diagnostics and materialized inspection checkpoints
 at 16-terminal increments. These are not restart checkpoints.

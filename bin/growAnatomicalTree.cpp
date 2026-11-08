@@ -3,6 +3,8 @@
 #include "ExpandTreeHelpers.h"
 #include "CLI11.hpp"
 #include "FrustumGeometry.h"
+#include "SurfaceWall.h"
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -76,8 +78,14 @@ struct Filter {
   Point outward;
   std::map<std::string, std::size_t> counts;
   std::vector<std::string> collisionTraces;
+  std::function<OpenCCO::SurfaceWall::Result(const Point &, const Point &, double)> surfaceCertificate;
   bool reject(const std::string &reason) { ++counts[reason]; return false; }
-  bool wall(const Point &a, const Point &b, double radius) const {
+  bool wall(const Point &a, const Point &b, double radius) {
+    if (surfaceCertificate) {
+      const auto result = surfaceCertificate(a, b, radius);
+      if (result == OpenCCO::SurfaceWall::Result::unresolved) ++counts["wall_unresolved"];
+      return result == OpenCCO::SurfaceWall::Result::inside;
+    }
     const double length = (b-a).norm();
     const auto steps = std::max(1u, static_cast<unsigned int>(std::ceil(length/.5)));
     const double required = radius + std::sqrt(3.)/2. + length/(2.*steps);
@@ -151,7 +159,7 @@ struct Filter {
 
 int main(int argc, char **argv) {
   CLI::App app;
-  std::string input, maskPath, output, allocationPath;
+  std::string input, maskPath, output, allocationPath, surfacePath;
   std::vector<std::string> obstacleFiles, grownFiles;
   std::vector<double> originValues;
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
@@ -165,6 +173,7 @@ int main(int argc, char **argv) {
   app.add_option("--pressure-drop", pressureDrop)->required();
   app.add_option("--viscosity", viscosity);
   app.add_option("--allocation", allocationPath, "CSV node,terminals,flow_fraction for every Grow endpoint");
+  app.add_option("--surface", surfacePath, "Original closed STL in metres (requires VTK build)");
   app.add_option("--terminals", target);
   app.add_option("--seed", seed);
   app.add_option("--searches", searches);
@@ -191,6 +200,14 @@ int main(int argc, char **argv) {
     mask.myMinDistanceToBorder = 1.;
     std::size_t foreground = 0;
     for (const auto &p : mask.myImage.domain()) foreground += mask.myImage(p) > 128;
+    std::unique_ptr<OpenCCO::SurfaceWall> surface;
+    decltype(Filter::surfaceCertificate) surfaceCertificate;
+    if (!surfacePath.empty()) {
+      surface = std::make_unique<OpenCCO::SurfaceWall>(surfacePath);
+      surfaceCertificate = [&](const Point &a, const Point &b, double radius) {
+        return surface->tubeInside(origin+a*pitch, origin+b*pitch, radius*pitch);
+      };
+    }
     std::vector<Obstacle> obstacles;
     if (std::find(obstacleFiles.begin(), obstacleFiles.end(), input) == obstacleFiles.end())
       obstacleFiles.push_back(input);
@@ -289,11 +306,17 @@ int main(int argc, char **argv) {
       const double fraction = allocation.empty() ? double(quota)/target : allocation.at(attachment).second;
       OpenCCO::SubtreeParameters parameters{quota, double(foreground)*quota/target,
           flow/(pitch*pitch*pitch)*fraction, pressureDrop, viscosity};
-      Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}};
+      Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}, surfaceCertificate};
       std::unique_ptr<Tree> tree;
+      // Preserve a valid tangent seed before searching other outward directions.
+      for (const double length : {5., 2.5, 1.25, .625}) {
+        auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, root+direction*length, parameters);
+        if (filter(candidate)) { tree = std::make_unique<Tree>(candidate); break; }
+      }
       Mask::TPointI center;
       for (unsigned int j = 0; j < 3; ++j) center[j] = static_cast<int>(std::lround(root[j]));
       for (const double length : {5., 2.5, 1.25, .625}) {
+        if (tree) break;
         // Reuse the native mask initializer's digital-sphere search. Only the
         // generated endpoint is sampled; the anatomical root remains exact.
         const auto endpoints = GeomHelpers::pointsOnSphere<Mask::TPointI, Mask::TDGset>(center, length);
@@ -358,7 +381,8 @@ int main(int argc, char **argv) {
             << (complete ? "true" : "false") << ",\"processed_attachments\":" << processed
             << ",\"imported_edges\":" << source.edges.size() << ",\"flow_m3_s\":" << flow
             << ",\"local_pressure_drop_pa\":" << pressureDrop << ",\"viscosity_pa_s\":" << viscosity
-            << ",\"physical_length_factor\":1,\"coupled_ready\":false}\n";
+            << ",\"wall_model\":\"" << (surface ? "original-stl-lipschitz" : "mask-l3-lower-bound")
+            << "\",\"physical_length_factor\":1,\"coupled_ready\":false}\n";
     std::cout << source.role << ": " << network.tissueTerminals().size() << '/' << target << " tissue tips\n";
     return complete ? 0 : 1;
   } catch (const std::exception &error) {

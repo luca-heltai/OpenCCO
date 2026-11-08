@@ -9,6 +9,9 @@ import tempfile
 import unittest
 
 BINARY = Path(sys.argv.pop(1)).resolve()
+WITH_SURFACE = "--with-surface" in sys.argv
+if WITH_SURFACE:
+    sys.argv.remove("--with-surface")
 
 
 def cube_mask(directory):
@@ -47,6 +50,8 @@ class AnatomicalGrowthCLI(unittest.TestCase):
                            "--mask", str(mask), "--origin", "0", "0", "0", "--pitch", ".001",
                            "--flow", "1e-8", "--pressure-drop", "400", "--terminals", "8",
                            "--seed", "23", "--output", str(output), "--obstacles", *map(str, files)]
+                if WITH_SURFACE and role == "portal":
+                    command += ["--surface", str(Path(__file__).resolve().parent/"data/cube_wall.stl")]
                 if prior:
                     command += ["--grown-obstacles", *map(str, prior)]
                 result = subprocess.run(command, capture_output=True, text=True, timeout=30)
