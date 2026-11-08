@@ -151,7 +151,7 @@ struct Filter {
 
 int main(int argc, char **argv) {
   CLI::App app;
-  std::string input, maskPath, output;
+  std::string input, maskPath, output, allocationPath;
   std::vector<std::string> obstacleFiles, grownFiles;
   std::vector<double> originValues;
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
@@ -164,6 +164,7 @@ int main(int argc, char **argv) {
   app.add_option("--flow", flow)->required();
   app.add_option("--pressure-drop", pressureDrop)->required();
   app.add_option("--viscosity", viscosity);
+  app.add_option("--allocation", allocationPath, "CSV node,terminals,flow_fraction for every Grow endpoint");
   app.add_option("--terminals", target);
   app.add_option("--seed", seed);
   app.add_option("--searches", searches);
@@ -243,6 +244,33 @@ int main(int argc, char **argv) {
     std::vector<std::size_t> attachments;
     for (std::size_t i = 0; i < source.nodes.size(); ++i) if (source.nodes[i].grow) attachments.push_back(i);
     if (attachments.empty() || target < attachments.size()) throw std::runtime_error("Insufficient target/Grow endpoints");
+    std::map<std::size_t, std::pair<unsigned int, double>> allocation;
+    if (!allocationPath.empty()) {
+      std::ifstream stream(allocationPath);
+      if (!stream) throw std::runtime_error("Cannot read source allocation");
+      std::string line;
+      std::getline(stream, line);
+      std::size_t total = 0;
+      double totalFraction = 0.;
+      while (std::getline(stream, line)) {
+        std::replace(line.begin(), line.end(), ',', ' ');
+        std::istringstream row(line);
+        std::size_t node;
+        unsigned int quota;
+        double fraction;
+        std::string extra;
+        if (!(row >> node >> quota >> fraction) || (row >> extra) || quota < 1 || quota > target ||
+            !std::isfinite(fraction) || fraction <= 0. || fraction > 1. ||
+            std::find(attachments.begin(), attachments.end(), node) == attachments.end() ||
+            !allocation.emplace(node, std::make_pair(quota, fraction)).second)
+          throw std::runtime_error("Invalid source allocation row");
+        total += quota;
+        totalFraction += fraction;
+      }
+      if (allocation.size() != attachments.size() || total != target ||
+          std::abs(totalFraction-1.) > 128.*std::numeric_limits<double>::epsilon()*attachments.size())
+        throw std::runtime_error("Source allocation must cover every Grow node, total target and unit flow fraction");
+    }
     srand(seed);
     bool complete = true;
     std::size_t processed = 0;
@@ -256,9 +284,11 @@ int main(int argc, char **argv) {
       const Point root = (point(source.nodes[attachment].position)-origin)/pitch;
       Point direction = root-(point(source.nodes[parent].position)-origin)/pitch;
       direction /= direction.norm();
-      const unsigned int quota = target/attachments.size() + (part < target%attachments.size());
+      const unsigned int quota = allocation.empty() ?
+          target/attachments.size() + (part < target%attachments.size()) : allocation.at(attachment).first;
+      const double fraction = allocation.empty() ? double(quota)/target : allocation.at(attachment).second;
       OpenCCO::SubtreeParameters parameters{quota, double(foreground)*quota/target,
-          flow/(pitch*pitch*pitch)*quota/target, pressureDrop, viscosity};
+          flow/(pitch*pitch*pitch)*fraction, pressureDrop, viscosity};
       Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}};
       std::unique_ptr<Tree> tree;
       for (const double length : {5., 2.5, 1.25, .625}) {
@@ -290,7 +320,8 @@ int main(int argc, char **argv) {
       }
       std::ofstream diagnostic(std::filesystem::path(output)/("attachment-"+std::to_string(attachment)+".json"));
       diagnostic << "{\"attachment\":" << attachment << ",\"requested\":" << quota
-                 << ",\"actual\":" << (tree ? tree->myKTerm : 0) << ",\"candidate_counts\":{";
+                 << ",\"actual\":" << (tree ? tree->myKTerm : 0) << ",\"design_flow_fraction\":"
+                 << std::setprecision(17) << fraction << ",\"candidate_counts\":{";
       bool comma = false;
       for (const auto &entry : filter.counts) {
         if (comma) diagnostic << ',';

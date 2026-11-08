@@ -143,6 +143,12 @@ The command requires the `.anatomy` input, existing `.vol` mask, world-coordinat
 origin/pitch, physical flow in m³/s and an explicit local pressure-drop budget in
 Pa. Pass all three original trees through `--obstacles`, and previously grown
 `segments.csv` files through `--grown-obstacles` when growing subsequent roles.
+`--allocation FILE` optionally supplies one CSV row `node,terminals,flow_fraction`
+for every enabled attachment. Quotas must sum to the requested total and positive
+flow fractions must sum to one. This separates geometric terminal counts from
+physical design-flow fractions; equal flow through a tiny and a large anatomical
+outlet is not assumed. It does not by itself establish a valid coupled reference.
+
 All output directories must be new. The executable writes `nodes.csv`,
 `segments.csv`, attachment diagnostics and materialized inspection checkpoints
 at 16-terminal increments. These are not restart checkpoints.
