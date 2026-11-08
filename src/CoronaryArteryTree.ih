@@ -166,6 +166,10 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
                               unsigned int nbIter, double tolerance,
                               unsigned int nbNeibour, bool verbose)
 {
+  const auto rejectNative = [&](const char *reason) {
+    if (myCandidateDiagnostics) ++(*myCandidateDiagnostics)[reason];
+    return false;
+  };
   const auto domainPoint = [](const TPointD &point) {
     TDomainPoint result;
     for (auto i = 0; i < TDim; ++i)
@@ -179,18 +183,18 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
   
   if (!myDomainController().isInside(newCenterDom))
   {
-      return false;
+      return rejectNative("initial_center_outside");
   }
     
   if (!myDomainController().checkNoIntersectDomain(pDom, newCenterDom))
   {
-      return false;
+      return rejectNative("initial_newline_outside");
   }
   
   if(!myDomainController().checkNoIntersectDomain(pSegIndDom,
                                                  newCenterDom))
   {
-      return false;
+      return rejectNative("initial_oldline_outside");
   }
       
   // Creation a copy of parent segment
@@ -200,7 +204,7 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
 
   if(!myDomainController().checkNoIntersectDomain(pParentDom,
                                                 newCenterDom))
-      return false;
+      return rejectNative("initial_rootline_outside");
   
   // Creation of the left child
   Segment sNewLeft;
@@ -239,7 +243,7 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     res1 = kamyiaOptimization(pCurrent, pParent, sCurrent.myRadius,
                               sNewLeft, sNewRight, 1, pOpt, r0, r1, r2);
     if(!res1) //Kamyia does not have solution
-      return false;
+      return rejectNative("optimizer_failure");
     
     //Check for middle seg
     int idSegPar = myVectParent[segIndex];
@@ -247,19 +251,19 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     int idR = myVectChildren[idSegPar].second;
     res2 = isIntersectingTree(pOpt, pParent, r0, std::make_tuple(idL, idR, idSegPar));
     if(res2) //there is intersection between segments
-      return false;
+      return rejectNative("center_collision");
     
     //Check for left seg
     idL = myVectChildren[segIndex].first;
     idR = myVectChildren[segIndex].second;
     res2 = isIntersectingTree(pOpt, sNewLeft.myCoordinate, r1,  std::make_tuple(segIndex, idL, idR));
     if(res2) //there is intersection between segments
-      return false;
+      return rejectNative("old_child_collision");
       
     //Check for right seg
     res2 = isIntersectingTree(pOpt, p, r2,  std::make_tuple(segIndex,-1,-1));
     if(res2) //there is intersection between segments
-      return false;
+      return rejectNative("new_child_collision");
     
     const auto pParentDom = domainPoint(pParent);
     const auto pOptDom = domainPoint(pOpt);
@@ -268,17 +272,17 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
 
     if(!myDomainController().isInside(pOptDom))
     { //resulting point is out of the domain
-      return false;
+      return rejectNative("optimized_center_outside");
     }
    
     
     //resulting segments intersect the domaine
     if( !myDomainController().checkNoIntersectDomain(pParentDom, pOptDom)) //Center segment
-      return false;
+      return rejectNative("optimized_rootline_outside");
     if(!myDomainController().checkNoIntersectDomain(sNewLeftDom, pOptDom)) //Left segment
-      return false;
+      return rejectNative("optimized_oldline_outside");
     if(!myDomainController().checkNoIntersectDomain(sNewRightDom, pOptDom)) //Right segment
-      return false;
+      return rejectNative("optimized_newline_outside");
     
     //Otherwise, iterate for the optimisation process
     CoronaryArteryTree cTree1 = *this;
@@ -376,7 +380,9 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
   }
     
   
-  return isDone;
+  if (!isDone) return rejectNative(res3 ? "iteration_budget" : "length_diameter");
+  if (myCandidateDiagnostics) ++(*myCandidateDiagnostics)["accepted"];
+  return true;
 }
 
 

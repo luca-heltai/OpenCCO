@@ -311,8 +311,10 @@ int main(int argc, char **argv) {
           flow/(pitch*pitch*pitch)*fraction, pressureDrop, viscosity};
       Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}, surfaceCertificate};
       std::unique_ptr<Tree> tree;
+      const auto nativeDiagnostics = std::make_shared<std::map<std::string, std::size_t>>();
       const auto makeSeed = [&](const Point &terminal) {
         auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, terminal, parameters);
+        candidate.myCandidateDiagnostics = nativeDiagnostics;
         if (matchRadius) candidate.myFixedRootRadius = source.nodes[attachment].radius/pitch;
         return candidate;
       };
@@ -365,6 +367,7 @@ int main(int argc, char **argv) {
         }
         ++processed;
       }
+      for (const auto &entry : *nativeDiagnostics) filter.counts["native_"+entry.first] += entry.second;
       std::ofstream diagnostic(std::filesystem::path(output)/("attachment-"+std::to_string(attachment)+".json"));
       diagnostic << "{\"attachment\":" << attachment << ",\"requested\":" << quota
                  << ",\"actual\":" << (tree ? tree->myKTerm : 0) << ",\"design_flow_fraction\":"

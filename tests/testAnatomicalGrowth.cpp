@@ -98,6 +98,7 @@ int main() {
     CircularDomainCtrl<3> sampling(50., Point());
     auto candidate = OpenCCO::seedAnatomicalSubtree(sampling, Point(0., 25., 0.), Point(),
                               {2, 20000., 1., 400., .00371});
+    candidate.myCandidateDiagnostics = std::make_shared<std::map<std::string, std::size_t>>();
     unsigned int calls = 0;
     bool sentinelStable = true;
     srand(23);
@@ -110,6 +111,8 @@ int main() {
     require(!complete && calls > 0 && candidate.myVectSegments.size() == 2 && candidate.myKTerm == 1,
             "Rejected candidate was committed or acceptance hook was not tested");
     require(sentinelStable, "Bifurcation overwrote the special root parent sentinel");
+    require((*candidate.myCandidateDiagnostics)["accepted"] > 0,
+            "Shared native telemetry lost decisions from copied candidates");
     std::cout << "Immutable anatomical append, physical seed and candidate gate passed\n";
     return 0;
   } catch (const std::exception &error) {

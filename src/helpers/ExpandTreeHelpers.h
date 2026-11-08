@@ -70,14 +70,20 @@ expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
         double bestVolume = 0.0;
         for (unsigned int search = 0; search < nbMaxSearch && !found; ++search) {
             const auto sample = aTree.tryGenerateNewLocation(nbTryCandidate);
-            if (!sample.second) continue;
+            if (!sample.second) {
+                if (aTree.myCandidateDiagnostics) ++(*aTree.myCandidateDiagnostics)["sampling_budget"];
+                continue;
+            }
             const auto &point = sample.first;
             const auto nearest = aTree.getN_NearestSegments(point, aTree.myNumNeighbor);
             for (const auto index : nearest) {
                 const auto center = aTree.findBarycenter(point, index);
                 if (aTree.isIntersectingTree(point, center,
                                             aTree.myVectSegments[index].myRadius,
-                                            index)) continue;
+                                            index)) {
+                    if (aTree.myCandidateDiagnostics) ++(*aTree.myCandidateDiagnostics)["prefilter_collision"];
+                    continue;
+                }
                 auto candidate = aTree;
                 if (!candidate.isAddable(point, index, 100, 0.01,
                                          candidate.myNumNeighbor, verbose)) continue;
