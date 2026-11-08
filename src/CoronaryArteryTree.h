@@ -31,6 +31,7 @@
 
 #include <type_traits>
 #include <utility>
+#include <stdexcept>
 
 
 #include <iostream>
@@ -364,12 +365,16 @@ public:
     
     /**
      * Generates a new location with distance constraints.
-     * @param nbTrials : number of trials before reducing the distance constaint value
+     * @param nbTrials : maximum total samples; spacing relaxes by 0.9 after each 100 failures
+     * @throws std::runtime_error if the finite budget is exhausted
      *
      */
     
     DGtal::PointVector<TDim, double>
     generateNewLocation(unsigned int nbTrials = 1000);
+
+    // Nonthrowing budget-exhaustion result for bounded expansion workflows.
+    std::pair<TPointD, bool> tryGenerateNewLocation(unsigned int nbTrials = 1000);
     
     /**
      * Generates a new location with distance constraints.
