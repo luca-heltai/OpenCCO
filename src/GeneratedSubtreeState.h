@@ -15,6 +15,10 @@ void writeGeneratedSubtree(std::ostream &out, const AnatomicalTree &source,
                           const typename Tree::TPointD &origin, double pitch) {
   GrownAnatomy checked(source);
   checked.append(attachment,tree,origin,pitch);
+  if (tree.myFixedRootRadius>0. &&
+      std::abs(tree.myFixedRootRadius*pitch-source.nodes[attachment].radius)>
+      64.*std::numeric_limits<double>::epsilon()*source.nodes[attachment].radius)
+    throw std::runtime_error("Snapshot inlet constraint does not match the anatomical lumen");
   out << std::setprecision(17) << "OpenCCOGeneratedSubtree 1\n" << source.role
       << " metres " << attachment << ' ' << tree.myVectSegments.size() << ' '
       << tree.my_gamma << ' ' << (tree.myFixedRootRadius>0.) << '\n';
@@ -34,7 +38,7 @@ CoronaryArteryTree<Domain,3>
 readGeneratedSubtree(std::istream &in, Domain &domain, const AnatomicalTree &source,
                      std::size_t attachment,
                      const DGtal::PointVector<3,double> &origin, double pitch,
-                     const SubtreeParameters &parameters, bool matchRadius) {
+                     const SubtreeParameters &parameters, bool matchRadius, bool allowSizingChange=false) {
   using Tree=CoronaryArteryTree<Domain,3>;
   using Point=typename Tree::TPointD;
   std::string magic,role,units,extra;
@@ -46,7 +50,7 @@ readGeneratedSubtree(std::istream &in, Domain &domain, const AnatomicalTree &sou
       magic!="OpenCCOGeneratedSubtree" || version!=1 || role!=source.role || units!="metres" ||
       attachment>=source.nodes.size() || !source.nodes[attachment].grow || savedAttachment!=attachment ||
       count<2 || count>2ull*parameters.terminals || count>std::numeric_limits<unsigned int>::max() || (matched!=0 && matched!=1) ||
-      bool(matched)!=matchRadius || !std::isfinite(gamma) || gamma!=3. ||
+      (bool(matched)!=matchRadius && !allowSizingChange) || !std::isfinite(gamma) || gamma!=3. ||
       !std::isfinite(pitch) || pitch<=0. || !std::isfinite(origin.norm()))
     throw std::runtime_error("Incompatible generated subtree geometry header");
   std::vector<Point> points(count);

@@ -117,6 +117,19 @@ void testMeasuredRadius() {
     require(rejected,"Malformed or model-incompatible continuation was accepted");
   };
   mustReject(encoding,false);
+  std::istringstream explicitResize(encoding);
+  auto resized=OpenCCO::readGeneratedSubtree(explicitResize,domain,source,1,Point(),.001,
+                                            {4,1000.,4.,400.,.00371},false,true);
+  require(resized.myFixedRootRadius==0. && resized.my_pDrop==400.,
+          "Explicit resize did not restore canonical prescribed-drop normalization");
+  const double oracleResistance=kappa*(1.+std::cbrt(2.)*std::sqrt(2.));
+  require(std::abs(resized.myVectSegments[1].myRadius-std::pow(2.*oracleResistance/400.,.25))<1e-14,
+          "Explicit resize disagrees with independent Poiseuille radius");
+  OpenCCO::GrownAnatomy resizedNetwork(source);
+  resizedNetwork.append(1,resized,Point(),.001);
+  require(resizedNetwork.branches()[0].radiusB==source.nodes[1].radius &&
+          resizedNetwork.branches()[1].radiusA!=source.nodes[1].radius,
+          "Explicit generated resizing overwrote or averaged the imported radius trace");
   mustReject(encoding+"unexpected",true);
   auto moved=encoding;
   moved.replace(moved.find("\n0 0 ")+5,1,".001");

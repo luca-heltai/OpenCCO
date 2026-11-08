@@ -183,7 +183,11 @@ increments. New snapshots also include versioned `subtrees/attachment-ID.cco`
 geometry records. `--bootstrap DIRECTORY` binds these to the exact saved
 `source.anatomy`, validates native binary topology and all physical gates, and
 continues under the explicitly supplied current quota/flow/viscosity inputs.
-The inlet-sizing mode and gamma must match. All other restored subtrees remain
+Gamma must match. Inlet-sizing mode changes are rejected unless explicitly
+requested with `--resize-bootstrap`; that option recomputes generated radii under
+the requested canonical pressure-drop or measured-lumen mode, retaining every
+normalized diameter and physical gate. Imported radius traces are never changed
+or averaged with a different generated-side trace. All other restored subtrees remain
 obstacles, and partial output retains even unprocessed accepted branches.
 
 This restores generated geometry, not opaque optimizer/RNG execution state.

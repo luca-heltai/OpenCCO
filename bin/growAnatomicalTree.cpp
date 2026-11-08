@@ -83,6 +83,7 @@ struct Filter {
   std::vector<std::string> collisionTraces;
   std::function<OpenCCO::SurfaceWall::Result(const Point &, const Point &, double)> surfaceCertificate;
   std::size_t attachment = std::numeric_limits<std::size_t>::max();
+  bool strictDiameter = false;
   bool reject(const std::string &reason) { ++counts[reason]; return false; }
   bool wall(const Point &a, const Point &b, double radius) {
     if (surfaceCertificate) {
@@ -130,7 +131,7 @@ struct Filter {
           (nativeA != nativeB && !mask.checkNoIntersectDomain(nativeA, nativeB)))
         return reject("mask_query");
       if ((b-a).norm() <= 0.) return reject("degenerate");
-      if (tree.myFixedRootRadius > 0. && 2*radius > (b-a).norm()) return reject("short_diameter");
+      if ((tree.myFixedRootRadius > 0. || strictDiameter) && 2*radius > (b-a).norm()) return reject("short_diameter");
       if (parent == 0 && (b-a).dot(outward) <= 0.) return reject("foldback");
       if (!wall(a, b, radius)) return reject("wall");
       for (const auto &obstacle : fixed) {
@@ -212,10 +213,11 @@ int main(int argc, char **argv) {
   std::vector<double> originValues;
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
   unsigned int target = 64, seed = 23, searches = 100, samples = 1000;
-  bool matchRadius = false;
+  bool matchRadius = false, resizeBootstrap = false;
   unsigned int localCandidates = 0;
   app.add_option("--input", input)->required();
   app.add_option("--bootstrap", bootstrapPath, "Validated generated-subtree geometry directory");
+  app.add_flag("--resize-bootstrap", resizeBootstrap, "Explicitly allow generated sizing-mode changes; retain all diameter checks");
   app.add_option("--mask", maskPath)->required();
   app.add_option("--output", output)->required();
   app.add_option("--origin", originValues)->expected(3)->required();
@@ -240,6 +242,7 @@ int main(int argc, char **argv) {
         target < 1 || target > 1000000 || searches < 1 || searches > 1000000 ||
         samples < 1 || samples > 1000000 || localCandidates > 1000000)
       throw std::runtime_error("Require finite positive physical parameters and budgets");
+    if (resizeBootstrap && bootstrapPath.empty()) throw std::runtime_error("Resizing requires an explicit bootstrap");
     const Point origin(originValues[0], originValues[1], originValues[2]);
     if (!std::isfinite(origin.norm())) throw std::runtime_error("Invalid physical origin");
     const auto source = readAnatomy(input);
@@ -382,7 +385,7 @@ int main(int argc, char **argv) {
         const auto path=std::filesystem::path(bootstrapPath)/"subtrees"/("attachment-"+std::to_string(plan.id)+".cco");
         std::ifstream stream(path);
         if (!stream) throw std::runtime_error("Missing bootstrap generated subtree: "+path.string());
-        auto tree=OpenCCO::readGeneratedSubtree(stream,mask,source,plan.id,origin,pitch,plan.parameters,matchRadius);
+        auto tree=OpenCCO::readGeneratedSubtree(stream,mask,source,plan.id,origin,pitch,plan.parameters,matchRadius,resizeBootstrap);
         bootstrapTips+=tree.myKTerm;
         forest[plan.id]=std::make_unique<Tree>(std::move(tree));
         addObstacles(plan.id,*forest.at(plan.id));
@@ -391,8 +394,13 @@ int main(int argc, char **argv) {
       // remain obstacles and must be valid before any continuation is attempted.
       for (const auto &plan : plans) {
         Filter check{mask,obstacles,systemId(source.role),static_cast<long long>(plan.incident),
-                     plan.direction,{},{},surfaceCertificate,plan.id};
-        if (!check(*forest.at(plan.id))) throw std::runtime_error("Bootstrap geometry fails current physical gates");
+                     plan.direction,{},{},surfaceCertificate,plan.id,resizeBootstrap};
+        if (!check(*forest.at(plan.id))) {
+          std::ofstream rejected(std::filesystem::path(output)/("bootstrap-rejection-"+std::to_string(plan.id)+".txt"));
+          for (const auto &entry : check.counts) rejected << entry.first << " " << entry.second << "\n";
+          for (const auto &row : check.collisionTraces) rejected << row << "\n";
+          throw std::runtime_error("Bootstrap attachment "+std::to_string(plan.id)+" fails current physical gates");
+        }
       }
     }
     const auto materialize=[&] {
@@ -424,7 +432,7 @@ int main(int argc, char **argv) {
       const auto quota=parameters.terminals;
       const auto fraction=plan.fraction;
       Filter filter{mask,obstacles,systemId(source.role),static_cast<long long>(plan.incident),
-                    direction,{},{},surfaceCertificate,attachment};
+                    direction,{},{},surfaceCertificate,attachment,resizeBootstrap};
       auto &tree=forest[attachment];
       const auto nativeDiagnostics = std::make_shared<std::map<std::string, std::size_t>>();
       const auto makeSeed = [&](const Point &terminal) {
@@ -534,6 +542,8 @@ int main(int argc, char **argv) {
             << (complete ? "true" : "false") << ",\"processed_attachments\":" << processed
             << ",\"imported_edges\":" << source.edges.size() << ",\"flow_m3_s\":" << flow
             << ",\"local_pressure_drop_pa\":" << pressureDrop << ",\"viscosity_pa_s\":" << viscosity
+            << ",\"bootstrap_resizing_allowed\":" << (resizeBootstrap ? "true" : "false")
+            << ",\"all_generated_diameter_checks\":" << ((matchRadius || resizeBootstrap) ? "true" : "false")
             << ",\"bootstrap_tip_count\":" << bootstrapTips
             << ",\"local_candidate_budget\":" << localCandidates
             << ",\"pressure_drop_prescribed\":" << (matchRadius ? "false" : "true")

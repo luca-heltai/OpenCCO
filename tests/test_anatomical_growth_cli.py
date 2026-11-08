@@ -171,6 +171,25 @@ class AnatomicalGrowthCLI(unittest.TestCase):
             result = subprocess.run(invalid, capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Bootstrap source anatomy changed", result.stderr)
+            resized = continued.copy()
+            resized.remove("--match-attachment-radius")
+            resized[resized.index("--output")+1] = str(directory/"invalid-mode")
+            result = subprocess.run(resized, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Incompatible generated subtree geometry header", result.stderr)
+            resized[resized.index("--output")+1] = str(directory/"resized")
+            resized += ["--resize-bootstrap"]
+            result = subprocess.run(resized, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:] + result.stdout[-2000:])
+            resized_summary = json.loads((directory/"resized/summary.json").read_text())
+            self.assertTrue(resized_summary["bootstrap_resizing_allowed"])
+            self.assertTrue(resized_summary["pressure_drop_prescribed"])
+            self.assertTrue(resized_summary["all_generated_diameter_checks"])
+            with (directory/"resized/segments.csv").open() as stream:
+                resized_edges = list(csv.DictReader(stream))
+            self.assertEqual(float(resized_edges[1]["r1"]), .0002)
+            inlet = next(edge for edge in resized_edges if edge["generated"] == "1" and edge["a"] == "2")
+            self.assertNotEqual(float(inlet["r0"]), .0002)
             # The discrete mask cannot supply one million distinct tissue sites.
             # Force a finite partial continuation, retaining BOTH accepted parts.
             allocation.write_text("node,terminals,flow_fraction\n2,500000,.25\n3,500000,.75\n")
