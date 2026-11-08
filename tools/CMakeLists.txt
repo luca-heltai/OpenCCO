@@ -1,4 +1,5 @@
 SET(TOOLS_SRC
+   inspectAnatomy
    generateTestDomain
    mergeObj
 )
