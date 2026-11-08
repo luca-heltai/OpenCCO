@@ -3,8 +3,9 @@
 Tracking: [fork issue #5](https://github.com/luca-heltai/OpenCCO/issues/5), following
 [ImmersX #343](https://github.com/luca-heltai/immersx/issues/343).
 
-This first stage imports and validates real vascular trees. It does **not** grow
-them, establish hydraulic feasibility, or run a coupled tissue simulation.
+The import stage validates real vascular trees without growing them. A separate
+experimental growth command is described below; neither stage establishes
+hydraulic feasibility or a successful coupled tissue simulation.
 The existing `generateTree3D` command still starts from an artificial segment;
 it does not consume these anatomical inputs yet.
 
@@ -128,6 +129,45 @@ mesh controller or anatomical immutability.
 Protecting fixed geometry and radius traces, constraining attachments, handling
 other-role obstacles and exporting generated-vs-imported provenance are still
 required before anatomical growth is accepted.
+
+## Experimental growth from imported tips
+
+`growAnatomicalTree` now attaches native CCO subtrees at existing `Grow` endpoints
+without optimizing the imported vessels. It reuses `ImageMaskDomainCtrl<3>`;
+no new tissue controller is required. Original coordinates, connectivity and
+both endpoint-radius traces are retained exactly in the exported prefix.
+The new subtree root is fixed at the original tip, not the legacy `--posInit`
+location heuristic.
+
+The command requires the `.anatomy` input, existing `.vol` mask, world-coordinate
+origin/pitch, physical flow in m³/s and an explicit local pressure-drop budget in
+Pa. Pass all three original trees through `--obstacles`, and previously grown
+`segments.csv` files through `--grown-obstacles` when growing subsequent roles.
+All output directories must be new. The executable writes `nodes.csv`,
+`segments.csv`, attachment diagnostics and materialized inspection checkpoints
+at 16-terminal increments. These are not restart checkpoints.
+
+Generated-subtree computations use voxel coordinates with
+`Q_native = Q_physical / pitch³`, viscosity in Pa·s and physical length factor 1.
+The legacy executables retain their length-scaling policy. Imported vessels
+are never rescaled. Generated branches are cylindrical native CCO outputs;
+imported branches retain their two original endpoint radii. A shared junction
+may therefore have different radius traces on its incident branches.
+
+Before committing a candidate, the application checks distinct generated node
+positions, nonincident self/source collisions and conservative voxel-domain wall
+margins. Source vessels are enclosed by max-endpoint-radius capsules; this can
+reject valid configurations and is not a tapered-frustum collision certificate.
+Only the source edge incident to an attachment is exempted for the directly
+attached generated branch, whose initial direction must remain outward.
+Source vessels are not checked against each other or silently repaired.
+
+`role_growth_complete` means the requested geometric tip count was reached.
+`coupled_ready` remains false: cross-role terminal matching, explicit treatment
+of unused anatomical leaves, hydraulic feasibility, original-surface clearance,
+archive conversion and actual coupled-loader/solver checks are still required.
+Computational sizing flows and local pressure-drop budgets must be recorded;
+they are not automatically an adopted physiological configuration.
 
 ## Remaining scientific gates
 

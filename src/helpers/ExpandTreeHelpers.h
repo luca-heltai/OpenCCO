@@ -55,12 +55,12 @@ initFirtElemTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
 }
 
 
-template<typename DomCtr, int TDim>
+template<typename DomCtr, int TDim, typename AcceptCandidate>
 inline
 bool
 expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
-           bool verbose = false, unsigned int nbMaxSearch = 100,
-           unsigned int nbTryCandidate = 1000)
+           bool verbose, unsigned int nbMaxSearch,
+           unsigned int nbTryCandidate, AcceptCandidate acceptCandidate)
 {
     // The caller owns the RNG seed. Never restart it from wall-clock time here.
     while (aTree.myKTerm < aTree.my_NTerm) {
@@ -82,6 +82,10 @@ expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
                 if (!candidate.isAddable(point, index, 100, 0.01,
                                          candidate.myNumNeighbor, verbose)) continue;
                 const double volume = candidate.computeTotalVolume(1);
+                candidate.updateLengthFactor();
+                candidate.updateResistanceFromRoot();
+                candidate.updateRootRadius();
+                if (!acceptCandidate(candidate)) continue;
                 if (!found || volume < bestVolume) {
                     bestVolume = volume;
                     best = candidate;
@@ -91,9 +95,6 @@ expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
         }
         if (!found) break;
         aTree = best;
-        aTree.updateLengthFactor();
-        aTree.updateResistanceFromRoot();
-        aTree.updateRootRadius();
     }
     const bool complete = aTree.myKTerm == aTree.my_NTerm;
     if (!complete)
@@ -103,6 +104,14 @@ expandTree(CoronaryArteryTree< DomCtr, TDim > &aTree,
     return complete;
 }
 
+
+// Legacy callers retain the same candidate selection and final normalization.
+template<typename DomCtr, int TDim>
+inline bool expandTree(CoronaryArteryTree<DomCtr, TDim> &tree,
+                       bool verbose = false, unsigned int searches = 100,
+                       unsigned int samples = 1000) {
+    return expandTree(tree, verbose, searches, samples, [](const auto &) { return true; });
+}
 
 template<typename TImage >
 std::vector<std::vector<typename TImage::Domain::Point > >

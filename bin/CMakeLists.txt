@@ -1,4 +1,5 @@
 SET(BIN_SRC
+  growAnatomicalTree
   generateTree2D
   generateTree3D
 )

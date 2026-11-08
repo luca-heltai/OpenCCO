@@ -283,8 +283,10 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     // Update for the new parent of the new left segment
     unsigned int leftGrandChildIndex = cTree1.myVectChildren[myVectSegments[segIndex].myIndex].first;
     unsigned int rightGrandChildIndex = cTree1.myVectChildren[myVectSegments[segIndex].myIndex].second;
-    cTree1.myVectParent[leftGrandChildIndex] = sNewLeft.myIndex;
-    cTree1.myVectParent[rightGrandChildIndex] = sNewLeft.myIndex;
+    if (leftGrandChildIndex != 0)
+      cTree1.myVectParent[leftGrandChildIndex] = sNewLeft.myIndex;
+    if (rightGrandChildIndex != 0)
+      cTree1.myVectParent[rightGrandChildIndex] = sNewLeft.myIndex;
     
     // Update of the child of the new left segment (sNewLeft)
     cTree1.myVectChildren[sNewLeft.myIndex].first = leftGrandChildIndex;
