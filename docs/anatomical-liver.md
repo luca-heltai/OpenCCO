@@ -156,8 +156,12 @@ may therefore have different radius traces on its incident branches.
 
 Before committing a candidate, the application checks distinct generated node
 positions, nonincident self/source collisions and conservative voxel-domain wall
-margins. Source vessels are enclosed by max-endpoint-radius capsules; this can
-reject valid configurations and is not a tapered-frustum collision certificate.
+margins. Max-endpoint-radius capsules provide the initial collision bound.
+When these overlap, the existing ImmersX support-plane predicate for flat-ended,
+linearly tapered frusta can certify actual separation. The port preserves its
+roundoff guards and conservative rejection when no witness is found; it does
+not lower a physical clearance threshold. Exact source revision and licensing
+are recorded in `src/helpers/FrustumGeometry.h` and `licenses/`.
 Only the source edge incident to an attachment is exempted for the directly
 attached generated branch, whose initial direction must remain outward.
 Source vessels are not checked against each other or silently repaired.

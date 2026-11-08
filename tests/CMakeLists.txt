@@ -1,6 +1,7 @@
 SET(TESTS_SRC
   testAnatomicalTree
   testAnatomicalGrowth
+  testFrustumGeometry
   testDomainCoordinates
   testSamplingBudget
   testImplicitDomain
@@ -34,7 +35,7 @@ if(BUILD_TESTING)
       $<TARGET_FILE:growAnatomicalTree>)
   set_tests_properties(testAnatomicalGrowthCLI PROPERTIES TIMEOUT 120)
   # testCompCCO requires external reference data not distributed with OpenCCO.
-  foreach(test_name testAnatomicalTree testAnatomicalGrowth testDomainCoordinates testSamplingBudget testImplicitDomain testGenerateTree testGeom testKamiya testSchreiner)
+  foreach(test_name testAnatomicalTree testAnatomicalGrowth testFrustumGeometry testDomainCoordinates testSamplingBudget testImplicitDomain testGenerateTree testGeom testKamiya testSchreiner)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${test_name}-output")
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES

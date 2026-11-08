@@ -2,6 +2,7 @@
 #include "AnatomicalGrowth.h"
 #include "ExpandTreeHelpers.h"
 #include "CLI11.hpp"
+#include "FrustumGeometry.h"
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -29,6 +30,7 @@ struct Obstacle {
   double radius;
   int system;
   long long sourceEdge;
+  double radiusA, radiusB;
 };
 
 bool boxesOverlap(const Point &a, const Point &b, double radius,
@@ -73,6 +75,7 @@ struct Filter {
   long long incident;
   Point outward;
   std::map<std::string, std::size_t> counts;
+  std::vector<std::string> collisionTraces;
   bool reject(const std::string &reason) { ++counts[reason]; return false; }
   bool wall(const Point &a, const Point &b, double radius) const {
     const double length = (b-a).norm();
@@ -112,8 +115,21 @@ struct Filter {
       for (const auto &obstacle : fixed) {
         if (parent == 0 && obstacle.system == system && obstacle.sourceEdge == incident) continue;
         if (boxesOverlap(a, b, radius, obstacle.a, obstacle.b, obstacle.radius) &&
-            GeomHelpers::segment2segmentDistance<3>(a, b, obstacle.a, obstacle.b) <= radius+obstacle.radius)
-          return reject("fixed_collision");
+            GeomHelpers::segment2segmentDistance<3>(a, b, obstacle.a, obstacle.b) <= radius+obstacle.radius) {
+          const bool separated = FrustumGeometry::separated(a, b, {{radius, radius}},
+                                  obstacle.a, obstacle.b, {{obstacle.radiusA, obstacle.radiusB}});
+          if (collisionTraces.size() < 128) {
+            std::ostringstream row;
+            row << std::setprecision(17) << i << ',' << parent << ',' << obstacle.system << ','
+                << obstacle.sourceEdge << ',' << separated;
+            for (const auto &p : {a, b, obstacle.a, obstacle.b})
+              for (unsigned int j = 0; j < 3; ++j) row << ',' << p[j];
+            row << ',' << radius << ',' << obstacle.radiusA << ',' << obstacle.radiusB;
+            collisionTraces.push_back(row.str());
+          }
+          if (!separated) return reject("fixed_collision");
+          ++counts["frustum_certificates"];
+        }
       }
       for (std::size_t j = 1; j < i; ++j) {
         const auto otherParent = tree.myVectParent[j];
@@ -122,7 +138,8 @@ struct Filter {
         const auto &d = tree.myVectSegments[j].myCoordinate;
         const double otherRadius = tree.myVectSegments[j].myRadius;
         if (boxesOverlap(a, b, radius, c, d, otherRadius) &&
-            GeomHelpers::segment2segmentDistance<3>(a, b, c, d) <= radius+otherRadius)
+            GeomHelpers::segment2segmentDistance<3>(a, b, c, d) <= radius+otherRadius &&
+            !FrustumGeometry::separated(a, b, {{radius, radius}}, c, d, {{otherRadius, otherRadius}}))
           return reject("self_collision");
       }
     }
@@ -196,7 +213,8 @@ int main(int argc, char **argv) {
         obstacles.push_back({(point(anatomy.nodes[edge[0]].position)-origin)/pitch,
                              (point(anatomy.nodes[edge[1]].position)-origin)/pitch,
                              std::max(anatomy.nodes[edge[0]].radius, anatomy.nodes[edge[1]].radius)/pitch,
-                             systemId(anatomy.role), static_cast<long long>(i)});
+                             systemId(anatomy.role), static_cast<long long>(i),
+                             anatomy.nodes[edge[0]].radius/pitch, anatomy.nodes[edge[1]].radius/pitch});
       }
     }
     for (const auto &file : grownFiles) {
@@ -219,7 +237,7 @@ int main(int argc, char **argv) {
             !std::isfinite(r0) || !std::isfinite(r1) || r0 <= 0. || r1 <= 0.)
           throw std::runtime_error("Nonfinite or invalid grown obstacle geometry");
         if (generated) obstacles.push_back({(x-origin)/pitch, (y-origin)/pitch,
-                                            std::max(r0, r1)/pitch, system, -1});
+                                            std::max(r0, r1)/pitch, system, -1, r0/pitch, r1/pitch});
       }
     }
     std::vector<std::size_t> attachments;
@@ -241,7 +259,7 @@ int main(int argc, char **argv) {
       const unsigned int quota = target/attachments.size() + (part < target%attachments.size());
       OpenCCO::SubtreeParameters parameters{quota, double(foreground)*quota/target,
           flow/(pitch*pitch*pitch)*quota/target, pressureDrop, viscosity};
-      Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}};
+      Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}};
       std::unique_ptr<Tree> tree;
       for (const double length : {5., 2.5, 1.25, .625}) {
         auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, root+direction*length, parameters);
@@ -265,7 +283,8 @@ int main(int argc, char **argv) {
         for (std::size_t i = 1; i < tree->myVectSegments.size(); ++i) {
           const auto &segment = tree->myVectSegments[i];
           obstacles.push_back({tree->myVectSegments[tree->myVectParent[i]].myCoordinate,
-                               segment.myCoordinate, segment.myRadius, systemId(source.role), -1});
+                               segment.myCoordinate, segment.myRadius, systemId(source.role), -1,
+                               segment.myRadius, segment.myRadius});
         }
         ++processed;
       }
@@ -279,6 +298,9 @@ int main(int argc, char **argv) {
         comma = true;
       }
       diagnostic << "}}\n";
+      std::ofstream traces(std::filesystem::path(output)/("collision-"+std::to_string(attachment)+".csv"));
+      traces << "candidate,parent,obstacle_system,source_edge,separated,a0,a1,a2,b0,b1,b2,c0,c1,c2,d0,d1,d2,radius,source_r0,source_r1\n";
+      for (const auto &row : filter.collisionTraces) traces << row << '\n';
       if (!complete) break;
     }
     writeNetwork(output, network);
