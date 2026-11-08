@@ -114,7 +114,18 @@ CoronaryArteryTree<DomCtr, TDim>::updateRootRadius()
 {
   unsigned int idRoot = 1;
   double Qpk = myVectSegments[idRoot].myKTerm*my_qTerm;
-  double rRoot = pow((myVectSegments[idRoot].myResistance*Qpk)/my_pDrop,0.25);
+  if (!std::isfinite(myFixedRootRadius) || myFixedRootRadius < 0.)
+    throw std::runtime_error("Root radius constraint must be finite and nonnegative");
+  double rRoot;
+  if (myFixedRootRadius > 0.) {
+    rRoot = myFixedRootRadius;
+    my_pDrop = myVectSegments[idRoot].myResistance*Qpk/std::pow(rRoot, 4);
+    if (!std::isfinite(my_pDrop) || my_pDrop <= 0.)
+      throw std::runtime_error("Invalid derived pressure drop at prescribed inlet radius");
+    my_pPerf = my_pTerm+my_pDrop;
+  } else {
+    rRoot = pow((myVectSegments[idRoot].myResistance*Qpk)/my_pDrop,0.25);
+  }
   myVectSegments[idRoot].myRadius = rRoot;
   updateRadius(idRoot, 1.0);
 }
@@ -331,7 +342,15 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
         double l0 = (pOpt - pParent).norm()*myLengthFactor;
         double l1 = (pOpt - sNewLeft.myCoordinate).norm()*myLengthFactor;
         double l2 = (pOpt - sNewRight.myCoordinate).norm()*myLengthFactor;
-        res3 = (2*r0<=l0) && (2*r1<=l1) && (2*r2<=l2);
+        if (myFixedRootRadius > 0.) {
+          // The constrained geometry is the normalized tree, not the local
+          // optimizer's provisional radius scale.
+          res3 = 2*cTree1.myVectSegments[segIndex].myRadius <= l0 &&
+                 2*cTree1.myVectSegments[sNewLeft.myIndex].myRadius <= l1 &&
+                 2*cTree1.myVectSegments[sNewRight.myIndex].myRadius <= l2;
+        } else {
+          res3 = (2*r0<=l0) && (2*r1<=l1) && (2*r2<=l2);
+        }
         // If there is a solution, then save the result
         if(res3)
         {

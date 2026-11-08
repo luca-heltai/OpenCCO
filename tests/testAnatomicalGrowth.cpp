@@ -6,8 +6,57 @@ void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+void testMeasuredRadius() {
+  using Point = DGtal::PointVector<3, double>;
+  CircularDomainCtrl<3> domain(10., Point());
+  auto tree = OpenCCO::seedAnatomicalSubtree(domain, Point(), Point(1.,0.,0.),
+                                            {2,1000.,1.,400.,.00371});
+  tree.myKTerm = 2;
+  tree.myVectSegments.resize(4);
+  tree.myVectParent = {0,0,1,1};
+  tree.myVectChildren = {{0,0},{2,3},{0,0},{0,0}};
+  tree.myVectTerminals = {2,3};
+  tree.myVectSegments[1].myKTerm = 2;
+  tree.myVectSegments[1].myFlow = 1.;
+  for (unsigned int i=2; i<4; ++i) {
+    tree.myVectSegments[i].myIndex = i;
+    tree.myVectSegments[i].myCoordinate = Point(2.,i==2 ? 1. : -1.,0.);
+    tree.myVectSegments[i].myFlow = .5;
+  }
+  tree.myFixedRootRadius = .2;
+  tree.updateResistanceFromRoot();
+  tree.updateRootRadius();
+  const double child = .2/std::cbrt(2.);
+  const double kappa = 8.*.00371/M_PI;
+  const double expected = kappa/std::pow(.2,4) + .5*kappa*std::sqrt(2.)/std::pow(child,4);
+  require(tree.myVectSegments[1].myRadius == .2 &&
+          std::abs(tree.myVectSegments[2].myRadius-child)<1e-14,
+          "Measured inlet or analytic Murray child radius changed");
+  require(std::abs(tree.my_pDrop-expected)<1e-12 &&
+          std::abs(tree.my_pPerf-tree.my_pTerm-expected)<1e-12,
+          "Derived binary pressure disagrees with independent Poiseuille path");
+  tree.my_qTerm *= 2.;
+  tree.myVectSegments[1].myFlow = 2.;
+  tree.myVectSegments[2].myFlow = tree.myVectSegments[3].myFlow = 1.;
+  tree.updateResistanceFromRoot();
+  tree.updateRootRadius();
+  require(tree.myVectSegments[1].myRadius == .2 && std::abs(tree.my_pDrop-2.*expected)<1e-12,
+          "Measured lumen was resized instead of deriving flow-dependent pressure");
+  tree.myFixedRootRadius = -1.;
+  bool rejected=false;
+  try { tree.updateRootRadius(); } catch(const std::runtime_error &) { rejected=true; }
+  require(rejected,"Invalid radius constraint accepted");
+  tree.myFixedRootRadius = 0.;
+  tree.my_pDrop = 400.;
+  tree.updateRootRadius();
+  const double resistance = kappa*(1.+std::cbrt(2.)*std::sqrt(2.));
+  require(std::abs(tree.myVectSegments[1].myRadius-std::pow(2.*resistance/400.,.25))<1e-14,
+          "Default fixed-pressure behavior changed");
+}
+
 int main() {
   try {
+    testMeasuredRadius();
     OpenCCO::AnatomicalTree source;
     source.role = "portal";
     source.nodes = {{{{.1, .2, .3}}, .001, true, false},

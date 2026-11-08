@@ -141,6 +141,9 @@ public:
         
         // my_pDrop = my_pPerf-my_pTerm
         double my_pDrop = 4900;
+        // Optional measured inlet radius (0 keeps prescribed pressure drop).
+        // When positive, updateRootRadius derives my_pDrop from Poiseuille.
+        double myFixedRootRadius = 0.;
     // End biological parameters
     //-----------------------------
     

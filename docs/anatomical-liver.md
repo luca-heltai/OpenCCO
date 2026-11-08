@@ -149,6 +149,15 @@ flow fractions must sum to one. This separates geometric terminal counts from
 physical design-flow fractions; equal flow through a tiny and a large anatomical
 outlet is not assumed. It does not by itself establish a valid coupled reference.
 
+`--match-attachment-radius` optionally holds each generated inlet lumen at its
+measured attachment radius. The same Poiseuille/Murray equations then derive the
+required drop from the design flow and current geometry, rather than inflating
+the inlet to meet the input drop. The latter is only an initial sizing input in
+this mode: `pressure_drop_prescribed:false` and per-attachment required pressures
+make this distinction explicit. No generated physical segment may violate the
+native length-at-least-diameter condition after normalization. Actual coupled
+flow feasibility remains a separate check; this is not physiological calibration.
+
 For ports close to the organ wall, build with `-DOPENCCO_WITH_VTK=ON` and
 pass `--surface /absolute/path/to/liver.stl` (metres). The mask remains the native
 sampler/optimizer domain. The final capsule-wall gate instead uses VTK's existing

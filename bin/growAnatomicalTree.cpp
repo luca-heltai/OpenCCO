@@ -118,6 +118,7 @@ struct Filter {
       const auto &b = tree.myVectSegments[i].myCoordinate;
       const double radius = tree.myVectSegments[i].myRadius;
       if ((b-a).norm() <= 0.) return reject("degenerate");
+      if (tree.myFixedRootRadius > 0. && 2*radius > (b-a).norm()) return reject("short_diameter");
       if (parent == 0 && (b-a).dot(outward) <= 0.) return reject("foldback");
       if (!wall(a, b, radius)) return reject("wall");
       for (const auto &obstacle : fixed) {
@@ -164,6 +165,7 @@ int main(int argc, char **argv) {
   std::vector<double> originValues;
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
   unsigned int target = 64, seed = 23, searches = 100, samples = 1000;
+  bool matchRadius = false;
   app.add_option("--input", input)->required();
   app.add_option("--mask", maskPath)->required();
   app.add_option("--output", output)->required();
@@ -174,6 +176,7 @@ int main(int argc, char **argv) {
   app.add_option("--viscosity", viscosity);
   app.add_option("--allocation", allocationPath, "CSV node,terminals,flow_fraction for every Grow endpoint");
   app.add_option("--surface", surfacePath, "Original closed STL in metres (requires VTK build)");
+  app.add_flag("--match-attachment-radius", matchRadius, "Preserve measured inlet lumen and derive required pressure");
   app.add_option("--terminals", target);
   app.add_option("--seed", seed);
   app.add_option("--searches", searches);
@@ -308,9 +311,14 @@ int main(int argc, char **argv) {
           flow/(pitch*pitch*pitch)*fraction, pressureDrop, viscosity};
       Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}, surfaceCertificate};
       std::unique_ptr<Tree> tree;
+      const auto makeSeed = [&](const Point &terminal) {
+        auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, terminal, parameters);
+        if (matchRadius) candidate.myFixedRootRadius = source.nodes[attachment].radius/pitch;
+        return candidate;
+      };
       // Preserve a valid tangent seed before searching other outward directions.
       for (const double length : {5., 2.5, 1.25, .625}) {
-        auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, root+direction*length, parameters);
+        auto candidate = makeSeed(root+direction*length);
         if (filter(candidate)) { tree = std::make_unique<Tree>(candidate); break; }
       }
       Mask::TPointI center;
@@ -324,7 +332,7 @@ int main(int argc, char **argv) {
         for (const auto &endpoint : endpoints) {
           const Point terminal(endpoint[0], endpoint[1], endpoint[2]);
           if (terminal == root || (terminal-root).dot(direction) <= 0.) continue;
-          auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, terminal, parameters);
+          auto candidate = makeSeed(terminal);
           if (!filter(candidate)) continue;
           const double clearance = mask.myDistanceImage(endpoint);
           if (clearance > bestClearance) {
@@ -360,7 +368,10 @@ int main(int argc, char **argv) {
       std::ofstream diagnostic(std::filesystem::path(output)/("attachment-"+std::to_string(attachment)+".json"));
       diagnostic << "{\"attachment\":" << attachment << ",\"requested\":" << quota
                  << ",\"actual\":" << (tree ? tree->myKTerm : 0) << ",\"design_flow_fraction\":"
-                 << std::setprecision(17) << fraction << ",\"candidate_counts\":{";
+                 << std::setprecision(17) << fraction
+                 << ",\"required_pressure_drop_pa\":" << (tree ? tree->my_pDrop : -1.)
+                 << ",\"inlet_radius_m\":" << (tree ? tree->myVectSegments[1].myRadius*pitch : -1.)
+                 << ",\"candidate_counts\":{";
       bool comma = false;
       for (const auto &entry : filter.counts) {
         if (comma) diagnostic << ',';
@@ -381,6 +392,7 @@ int main(int argc, char **argv) {
             << (complete ? "true" : "false") << ",\"processed_attachments\":" << processed
             << ",\"imported_edges\":" << source.edges.size() << ",\"flow_m3_s\":" << flow
             << ",\"local_pressure_drop_pa\":" << pressureDrop << ",\"viscosity_pa_s\":" << viscosity
+            << ",\"pressure_drop_prescribed\":" << (matchRadius ? "false" : "true")
             << ",\"wall_model\":\"" << (surface ? "original-stl-lipschitz" : "mask-l3-lower-bound")
             << "\",\"physical_length_factor\":1,\"coupled_ready\":false}\n";
     std::cout << source.role << ": " << network.tissueTerminals().size() << '/' << target << " tissue tips\n";
