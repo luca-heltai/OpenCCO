@@ -1,4 +1,6 @@
 #include "AnatomicalGrowth.h"
+#include "GeneratedSubtreeState.h"
+#include <sstream>
 #include "ExpandTreeHelpers.h"
 #include "FrustumGeometry.h"
 #include <iostream>
@@ -80,12 +82,45 @@ void testMeasuredRadius() {
           std::abs(tree.my_pPerf-tree.my_pTerm-expected)<1e-12,
           "Derived binary pressure disagrees with independent Poiseuille path");
   tree.my_qTerm *= 2.;
+  tree.my_qPerf *= 2.;
   tree.myVectSegments[1].myFlow = 2.;
   tree.myVectSegments[2].myFlow = tree.myVectSegments[3].myFlow = 1.;
   tree.updateResistanceFromRoot();
   tree.updateRootRadius();
   require(tree.myVectSegments[1].myRadius == .2 && std::abs(tree.my_pDrop-2.*expected)<1e-12,
           "Measured lumen was resized instead of deriving flow-dependent pressure");
+  OpenCCO::AnatomicalTree source;
+  source.role="portal";
+  source.nodes={{{{-.001,0.,0.}},.0002,true,false},
+                {{{0.,0.,0.}},.0002,false,true}};
+  source.edges={{{0,1}}};
+  std::stringstream snapshot;
+  OpenCCO::writeGeneratedSubtree(snapshot,source,1,tree,Point(),.001);
+  const auto encoding=snapshot.str();
+  auto restored=OpenCCO::readGeneratedSubtree(snapshot,domain,source,1,Point(),.001,
+                                             {4,1000.,4.,400.,.00371},true);
+  require(restored.myKTerm==2 && restored.my_NTerm==4 && restored.my_qTerm==1. &&
+          restored.myVectTerminals==std::vector<unsigned int>({2,3}),
+          "Continuation lost topology, true leaves or explicit current sizing inputs");
+  for (unsigned int i=1; i<tree.myVectSegments.size(); ++i)
+    require(restored.myVectSegments[i].myCoordinate==tree.myVectSegments[i].myCoordinate &&
+            restored.myVectSegments[i].myRadius==tree.myVectSegments[i].myRadius,
+            "Measured-radius geometry continuation changed its hydraulic shape");
+  require(restored.my_pDrop==tree.my_pDrop,"Continuation changed the analytic binary pressure");
+  const auto mustReject=[&](std::string text,bool matched) {
+    bool rejected=false;
+    try {
+      std::istringstream input(text);
+      (void)OpenCCO::readGeneratedSubtree(input,domain,source,1,Point(),.001,
+                                         {4,1000.,4.,400.,.00371},matched);
+    } catch (const std::runtime_error &) { rejected=true; }
+    require(rejected,"Malformed or model-incompatible continuation was accepted");
+  };
+  mustReject(encoding,false);
+  mustReject(encoding+"unexpected",true);
+  auto moved=encoding;
+  moved.replace(moved.find("\n0 0 ")+5,1,".001");
+  mustReject(moved,true);
   tree.myFixedRootRadius = -1.;
   bool rejected=false;
   try { tree.updateRootRadius(); } catch(const std::runtime_error &) { rejected=true; }

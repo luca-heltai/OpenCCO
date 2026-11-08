@@ -146,6 +146,63 @@ class AnatomicalGrowthCLI(unittest.TestCase):
                 self.assertNotEqual(record["required_pressure_drop_pa"], 400.)
                 local_insertions += record["candidate_counts"].get("local_insertions", 0)
             self.assertGreater(local_insertions, 0)
+            initial = directory/"radius-matched"
+            allocation.write_text("node,terminals,flow_fraction\n2,4,.25\n3,8,.75\n")
+            continued = command.copy()
+            continued[continued.index("--terminals")+1] = "12"
+            continued[continued.index("--output")+1] = str(directory/"continued")
+            continued += ["--bootstrap", str(initial)]
+            result = subprocess.run(continued, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:] + result.stdout[-2000:])
+            summary = json.loads((directory/"continued/summary.json").read_text())
+            self.assertEqual(summary["bootstrap_tip_count"], 8)
+            self.assertEqual(summary["actual"], 12)
+            self.assertTrue(summary["role_growth_complete"])
+            corrupt = directory/"corrupt"
+            corrupt.mkdir()
+            lines = (initial/"source.anatomy").read_text().splitlines()
+            first = lines[3].split()
+            first[3] = format(float(first[3])*1.01, ".17g")
+            lines[3] = " ".join(first)
+            (corrupt/"source.anatomy").write_text("\n".join(lines)+"\n")
+            invalid = continued.copy()
+            invalid[invalid.index("--bootstrap")+1] = str(corrupt)
+            invalid[invalid.index("--output")+1] = str(directory/"invalid-source")
+            result = subprocess.run(invalid, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Bootstrap source anatomy changed", result.stderr)
+            # The discrete mask cannot supply one million distinct tissue sites.
+            # Force a finite partial continuation, retaining BOTH accepted parts.
+            allocation.write_text("node,terminals,flow_fraction\n2,500000,.25\n3,500000,.75\n")
+            partial = continued.copy()
+            partial[partial.index("--terminals")+1] = "1000000"
+            partial[partial.index("--output")+1] = str(directory/"partial")
+            partial[partial.index("--local-candidates")+1] = "0"
+            result = subprocess.run(partial, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            summary = json.loads((directory/"partial/summary.json").read_text())
+            self.assertFalse(summary["role_growth_complete"])
+            self.assertGreaterEqual(summary["actual"], 8)
+            for node in [2, 3]:
+                self.assertTrue((directory/f"partial/subtrees/attachment-{node}.cco").is_file())
+            with (directory/"partial/nodes.csv").open() as stream:
+                restored_nodes = list(csv.DictReader(stream))
+            for node in [2, 3]:
+                self.assertEqual(restored_nodes[node]["source_grow"], "1")
+            adjacency = {i: [] for i in range(len(restored_nodes))}
+            with (directory/"partial/segments.csv").open() as stream:
+                for edge in csv.DictReader(stream):
+                    if edge["generated"] == "1":
+                        a, b = int(edge["a"]), int(edge["b"])
+                        adjacency[a].append(b)
+                        adjacency[b].append(a)
+            seen, pending = {3}, [3]
+            for node in pending:
+                for neighbor in adjacency[node]:
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        pending.append(neighbor)
+            self.assertEqual(sum(restored_nodes[node]["active_tissue"] == "1" for node in seen), 5)
 
 
 if __name__ == "__main__":

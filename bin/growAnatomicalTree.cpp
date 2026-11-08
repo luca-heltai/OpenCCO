@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "AnatomicalGrowth.h"
+#include "GeneratedSubtreeState.h"
 #include "ExpandTreeHelpers.h"
 #include "CLI11.hpp"
 #include "FrustumGeometry.h"
@@ -34,6 +35,7 @@ struct Obstacle {
   int system;
   long long sourceEdge;
   double radiusA, radiusB;
+  long long bootstrapAttachment = -1;
 };
 
 bool boxesOverlap(const Point &a, const Point &b, double radius,
@@ -80,6 +82,7 @@ struct Filter {
   std::map<std::string, std::size_t> counts;
   std::vector<std::string> collisionTraces;
   std::function<OpenCCO::SurfaceWall::Result(const Point &, const Point &, double)> surfaceCertificate;
+  std::size_t attachment = std::numeric_limits<std::size_t>::max();
   bool reject(const std::string &reason) { ++counts[reason]; return false; }
   bool wall(const Point &a, const Point &b, double radius) {
     if (surfaceCertificate) {
@@ -131,6 +134,8 @@ struct Filter {
       if (parent == 0 && (b-a).dot(outward) <= 0.) return reject("foldback");
       if (!wall(a, b, radius)) return reject("wall");
       for (const auto &obstacle : fixed) {
+        if (obstacle.system==system && obstacle.bootstrapAttachment>=0 &&
+            static_cast<std::size_t>(obstacle.bootstrapAttachment)==attachment) continue;
         if (parent == 0 && obstacle.system == system && obstacle.sourceEdge == incident) continue;
         if (boxesOverlap(a, b, radius, obstacle.a, obstacle.b, obstacle.radius) &&
             GeomHelpers::segment2segmentDistance<3>(a, b, obstacle.a, obstacle.b) <= radius+obstacle.radius) {
@@ -202,7 +207,7 @@ bool tryLocalSite(Tree &tree, Mask &mask, Filter &filter, unsigned int budget,
 
 int main(int argc, char **argv) {
   CLI::App app;
-  std::string input, maskPath, output, allocationPath, surfacePath;
+  std::string input, maskPath, output, allocationPath, surfacePath, bootstrapPath;
   std::vector<std::string> obstacleFiles, grownFiles;
   std::vector<double> originValues;
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
@@ -210,6 +215,7 @@ int main(int argc, char **argv) {
   bool matchRadius = false;
   unsigned int localCandidates = 0;
   app.add_option("--input", input)->required();
+  app.add_option("--bootstrap", bootstrapPath, "Validated generated-subtree geometry directory");
   app.add_option("--mask", maskPath)->required();
   app.add_option("--output", output)->required();
   app.add_option("--origin", originValues)->expected(3)->required();
@@ -237,7 +243,6 @@ int main(int argc, char **argv) {
     const Point origin(originValues[0], originValues[1], originValues[2]);
     if (!std::isfinite(origin.norm())) throw std::runtime_error("Invalid physical origin");
     const auto source = readAnatomy(input);
-    OpenCCO::GrownAnatomy network(source);
     if (std::filesystem::exists(output)) throw std::runtime_error("Output directory must be new");
     std::filesystem::create_directories(output);
     std::ofstream preserved(std::filesystem::path(output)/"source.anatomy");
@@ -335,12 +340,15 @@ int main(int argc, char **argv) {
           std::abs(totalFraction-1.) > 128.*std::numeric_limits<double>::epsilon()*attachments.size())
         throw std::runtime_error("Source allocation must cover every Grow node, total target and unit flow fraction");
     }
-    srand(seed);
-    std::mt19937 localRandom(seed);
-    bool complete = true;
-    std::size_t processed = 0;
-    for (std::size_t part = 0; part < attachments.size(); ++part) {
-      const auto attachment = attachments[part];
+    struct AttachmentPlan {
+      std::size_t id,incident;
+      Point root,direction;
+      OpenCCO::SubtreeParameters parameters;
+      double fraction;
+    };
+    std::vector<AttachmentPlan> plans;
+    for (std::size_t part=0; part<attachments.size(); ++part) {
+      const auto attachment=attachments[part];
       std::size_t parent = source.nodes.size(), incident = source.edges.size();
       for (std::size_t i = 0; i < source.edges.size(); ++i) {
         if (source.edges[i][0] == attachment) { parent = source.edges[i][1]; incident = i; }
@@ -354,8 +362,70 @@ int main(int argc, char **argv) {
       const double fraction = allocation.empty() ? double(quota)/target : allocation.at(attachment).second;
       OpenCCO::SubtreeParameters parameters{quota, double(foreground)*quota/target,
           flow/(pitch*pitch*pitch)*fraction, pressureDrop, viscosity};
-      Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}, surfaceCertificate};
-      std::unique_ptr<Tree> tree;
+      plans.push_back({attachment,incident,root,direction,parameters,fraction});
+    }
+    std::map<std::size_t,std::unique_ptr<Tree>> forest;
+    const auto addObstacles=[&](std::size_t attachment,const Tree &tree) {
+      for (std::size_t i=1; i<tree.myVectSegments.size(); ++i) {
+        const auto &segment=tree.myVectSegments[i];
+        obstacles.push_back({tree.myVectSegments[tree.myVectParent[i]].myCoordinate,
+                             segment.myCoordinate,segment.myRadius,systemId(source.role),-1,
+                             segment.myRadius,segment.myRadius,static_cast<long long>(attachment)});
+      }
+    };
+    std::size_t bootstrapTips=0;
+    if (!bootstrapPath.empty()) {
+      std::ostringstream fingerprint;
+      OpenCCO::writeAnatomicalTree(fingerprint,readAnatomy((std::filesystem::path(bootstrapPath)/"source.anatomy").string()));
+      if (fingerprint.str()!=sourceFingerprint.str()) throw std::runtime_error("Bootstrap source anatomy changed");
+      for (const auto &plan : plans) {
+        const auto path=std::filesystem::path(bootstrapPath)/"subtrees"/("attachment-"+std::to_string(plan.id)+".cco");
+        std::ifstream stream(path);
+        if (!stream) throw std::runtime_error("Missing bootstrap generated subtree: "+path.string());
+        auto tree=OpenCCO::readGeneratedSubtree(stream,mask,source,plan.id,origin,pitch,plan.parameters,matchRadius);
+        bootstrapTips+=tree.myKTerm;
+        forest[plan.id]=std::make_unique<Tree>(std::move(tree));
+        addObstacles(plan.id,*forest.at(plan.id));
+      }
+      // All accepted branches, including unprocessed same-role attachments,
+      // remain obstacles and must be valid before any continuation is attempted.
+      for (const auto &plan : plans) {
+        Filter check{mask,obstacles,systemId(source.role),static_cast<long long>(plan.incident),
+                     plan.direction,{},{},surfaceCertificate,plan.id};
+        if (!check(*forest.at(plan.id))) throw std::runtime_error("Bootstrap geometry fails current physical gates");
+      }
+    }
+    const auto materialize=[&] {
+      OpenCCO::GrownAnatomy network(source);
+      for (const auto &entry : forest)
+        if (entry.second) network.append(entry.first,*entry.second,origin,pitch);
+      return network;
+    };
+    const auto writeForest=[&](const std::filesystem::path &directory) {
+      writeNetwork(directory,materialize());
+      std::ofstream original(directory/"source.anatomy");
+      OpenCCO::writeAnatomicalTree(original,source);
+      std::filesystem::create_directories(directory/"subtrees");
+      for (const auto &entry : forest) if (entry.second) {
+        std::ofstream stream(directory/"subtrees"/("attachment-"+std::to_string(entry.first)+".cco"));
+        OpenCCO::writeGeneratedSubtree(stream,source,entry.first,*entry.second,origin,pitch);
+      }
+    };
+    srand(seed);
+    std::mt19937 localRandom(seed);
+    bool complete=true;
+    std::size_t processed=0;
+    for (std::size_t part=0; part<plans.size(); ++part) {
+      const auto &plan=plans[part];
+      const auto attachment=plan.id;
+      const auto &root=plan.root;
+      const auto &direction=plan.direction;
+      const auto &parameters=plan.parameters;
+      const auto quota=parameters.terminals;
+      const auto fraction=plan.fraction;
+      Filter filter{mask,obstacles,systemId(source.role),static_cast<long long>(plan.incident),
+                    direction,{},{},surfaceCertificate,attachment};
+      auto &tree=forest[attachment];
       const auto nativeDiagnostics = std::make_shared<std::map<std::string, std::size_t>>();
       const auto makeSeed = [&](const Point &terminal) {
         auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, terminal, parameters);
@@ -367,8 +437,16 @@ int main(int argc, char **argv) {
         if (matchRadius) candidate.myFixedRootRadius = source.nodes[attachment].radius/pitch;
         return candidate;
       };
+      if (tree) {
+        tree->myCandidateDiagnostics=nativeDiagnostics;
+        tree->mySegmentSeparationCertificate=[](const Point &a,const Point &b,double r,
+                                                const Point &c,const Point &d,double s) {
+          return FrustumGeometry::separated(a,b,{{r,r}},c,d,{{s,s}});
+        };
+      }
       // Preserve a valid tangent seed before searching other outward directions.
       for (const double length : {5., 2.5, 1.25, .625}) {
+        if (tree) break;
         auto candidate = makeSeed(root+direction*length);
         if (filter(candidate)) { tree = std::make_unique<Tree>(candidate); break; }
       }
@@ -397,7 +475,7 @@ int main(int argc, char **argv) {
         complete = false;
         std::cerr << "Cannot initialize anatomical attachment " << attachment << '\n';
       } else {
-        for (unsigned int chunk = std::min(16u, quota);; chunk = std::min(chunk+16, quota)) {
+        for (unsigned int chunk = std::min(quota,(tree->myKTerm/16+1)*16);; chunk = std::min(chunk+16, quota)) {
           tree->my_NTerm = chunk;
           bool grown;
           if (localCandidates == 0) {
@@ -416,19 +494,15 @@ int main(int argc, char **argv) {
             }
             grown=tree->myKTerm==goal;
           }
-          auto snapshot = network;
-          snapshot.append(attachment, *tree, origin, pitch);
-          writeNetwork(std::filesystem::path(output)/("checkpoint-"+std::to_string(part)+"-"+
-                                                     std::to_string(tree->myKTerm)), snapshot);
+          writeForest(std::filesystem::path(output)/("checkpoint-"+std::to_string(part)+"-"+
+                           std::to_string(chunk)+"-"+std::to_string(tree->myKTerm)));
           if (!grown || chunk == quota) { complete = complete && grown; break; }
         }
-        network.append(attachment, *tree, origin, pitch);
-        for (std::size_t i = 1; i < tree->myVectSegments.size(); ++i) {
-          const auto &segment = tree->myVectSegments[i];
-          obstacles.push_back({tree->myVectSegments[tree->myVectParent[i]].myCoordinate,
-                               segment.myCoordinate, segment.myRadius, systemId(source.role), -1,
-                               segment.myRadius, segment.myRadius});
-        }
+        obstacles.erase(std::remove_if(obstacles.begin(),obstacles.end(),[&](const auto &obstacle) {
+          return obstacle.system==systemId(source.role) &&
+                 obstacle.bootstrapAttachment==static_cast<long long>(attachment);
+        }),obstacles.end());
+        addObstacles(attachment,*tree);
         ++processed;
       }
       for (const auto &entry : *nativeDiagnostics) filter.counts["native_"+entry.first] += entry.second;
@@ -451,7 +525,8 @@ int main(int argc, char **argv) {
       for (const auto &row : filter.collisionTraces) traces << row << '\n';
       if (!complete) break;
     }
-    writeNetwork(output, network);
+    writeForest(output);
+    const auto network=materialize();
     complete = complete && network.tissueTerminals().size() == target;
     std::ofstream summary(std::filesystem::path(output)/"summary.json");
     summary << std::setprecision(17) << "{\"role\":\"" << source.role << "\",\"requested\":" << target
@@ -459,6 +534,7 @@ int main(int argc, char **argv) {
             << (complete ? "true" : "false") << ",\"processed_attachments\":" << processed
             << ",\"imported_edges\":" << source.edges.size() << ",\"flow_m3_s\":" << flow
             << ",\"local_pressure_drop_pa\":" << pressureDrop << ",\"viscosity_pa_s\":" << viscosity
+            << ",\"bootstrap_tip_count\":" << bootstrapTips
             << ",\"local_candidate_budget\":" << localCandidates
             << ",\"pressure_drop_prescribed\":" << (matchRadius ? "false" : "true")
             << ",\"wall_model\":\"" << (surface ? "original-stl-lipschitz" : "mask-l3-lower-bound")

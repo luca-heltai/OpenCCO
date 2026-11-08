@@ -178,8 +178,18 @@ never certify a segment. This avoids demanding a full-organ submillimetre mask
 merely to certify a valid near-wall anatomical attachment.
 
 All output directories must be new. The executable writes `nodes.csv`,
-`segments.csv`, attachment diagnostics and materialized inspection checkpoints
-at 16-terminal increments. These are not restart checkpoints.
+`segments.csv`, attachment diagnostics and materialized snapshots at16-terminal
+increments. New snapshots also include versioned `subtrees/attachment-ID.cco`
+geometry records. `--bootstrap DIRECTORY` binds these to the exact saved
+`source.anatomy`, validates native binary topology and all physical gates, and
+continues under the explicitly supplied current quota/flow/viscosity inputs.
+The inlet-sizing mode and gamma must match. All other restored subtrees remain
+obstacles, and partial output retains even unprocessed accepted branches.
+
+This restores generated geometry, not opaque optimizer/RNG execution state.
+Generated lattice coordinates are recovered within arithmetic roundoff; original
+anatomical nodes are never snapped. Older CSV-only inspection snapshots lack
+these records and are not retrospectively called restart checkpoints.
 
 Generated-subtree computations use voxel coordinates with
 `Q_native = Q_physical / pitch³`, viscosity in Pa·s and physical length factor 1.

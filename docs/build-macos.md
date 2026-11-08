@@ -26,8 +26,9 @@ patch -p1 -d ext/DGtal < cmake/patches/dgtal-build.patch
 cmake -S ext/ceres-solver-2.0.0 -B build/deps/ceres -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
   -DEigen3_DIR="$EIGEN/share/eigen3/cmake" \
-  -DMINIGLOG=ON -DGFLAGS=OFF -DSUITESPARSE=OFF -DCXSPARSE=OFF \
+  -DMINIGLOG=ON -DMINIGLOG_MAX_LOG_LEVEL=0 -DGFLAGS=OFF -DSUITESPARSE=OFF -DCXSPARSE=OFF \
   -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF
+# Level0 suppresses verbose traces, retaining INFO/warnings/errors/fatal logs.
 cmake --build build/deps/ceres --parallel 4
 cmake --install build/deps/ceres
 
