@@ -160,7 +160,8 @@ flow feasibility remains a separate check; this is not physiological calibration
 
 `--local-candidates N` enables at most N explicit lattice proposals per insertion
 near existing generated tips, using the same digital-sphere facility as native
-initialization. It falls back to the native sampled search. The default0 retains
+initialization, only after the native global sampled stage exhausts its budget.
+Global proposals stay primary to avoid local clustering. The default0 retains
 sampled growth. Explicit sites bypass only the random sampler's density heuristic,
 not lumen clearance, native optimization, normalized diameter checks, duplicate
 rejection, wall certificates or source/cross-role collision checks. Local proposal

@@ -131,7 +131,8 @@ class AnatomicalGrowthCLI(unittest.TestCase):
             self.assertIn("unit flow fraction", result.stderr)
             allocation.write_text("node,terminals,flow_fraction\n2,3,.25\n3,5,.75\n")
             command[-1] = str(directory/"radius-matched")
-            command += ["--match-attachment-radius", "--local-candidates", "64"]
+            command += ["--match-attachment-radius", "--local-candidates", "64",
+                        "--searches", "1", "--samples", "1"]
             result = subprocess.run(command, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr[-2000:] + result.stdout[-2000:])
             summary = json.loads((directory/"radius-matched/summary.json").read_text())

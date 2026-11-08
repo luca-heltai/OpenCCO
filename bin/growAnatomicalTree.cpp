@@ -406,12 +406,13 @@ int main(int argc, char **argv) {
           } else {
             const auto goal=tree->my_NTerm;
             while (tree->myKTerm<goal) {
-              if (tryLocalSite(*tree,mask,filter,localCandidates,localRandom)) continue;
               tree->my_NTerm=tree->myKTerm+1;
               const bool added=ExpandTreeHelpers::expandTree(*tree,false,searches,samples,
                                                    [&](auto &candidate) { return filter(candidate); });
               tree->my_NTerm=goal;
-              if (!added) break;
+              if (added) continue;
+              ++filter.counts["sampled_stage_exhaustions"];
+              if (!tryLocalSite(*tree,mask,filter,localCandidates,localRandom)) break;
             }
             grown=tree->myKTerm==goal;
           }
