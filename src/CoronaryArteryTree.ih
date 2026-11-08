@@ -312,6 +312,13 @@ CoronaryArteryTree<DomCtr, TDim>::isAddable(const TPointD &p, unsigned int segIn
     cTree1.myVectChildren.push_back(std::pair<unsigned int, unsigned int>(0,0));
     cTree1.myVectParent.push_back(segIndex);
     cTree1.myVectTerminals.push_back(sNewRight.myIndex);
+    if (myVectChildren[segIndex] == std::make_pair(0u,0u)) {
+      const auto oldTerminal = std::find(cTree1.myVectTerminals.begin(),
+                                         cTree1.myVectTerminals.end(),segIndex);
+      if (oldTerminal == cTree1.myVectTerminals.end())
+        throw std::runtime_error("Generated leaf is missing from the terminal index");
+      *oldTerminal = sNewLeft.myIndex;
+    }
     
     // Update center segment
     cTree1.myVectSegments[segIndex].myCoordinate = pOpt;
@@ -628,24 +635,16 @@ CoronaryArteryTree<DomCtr, TDim>::tryGenerateNewLocation(unsigned int nbTrials) 
 template< typename DomCtr, int TDim >
 std::pair<typename CoronaryArteryTree<DomCtr, TDim>::TPointD, bool>
 CoronaryArteryTree<DomCtr, TDim>::generateALocation(double myDThresold) {
-    TPointD res;
-    res = myDomainController().randomPoint();
-    bool isComp = true;
-    bool isComp2 = true;
-    unsigned int id = 1;
-    
-    while ( isComp && id < myVectTerminals.size() ) {
-      isComp = (myVectSegments[myVectTerminals[id]].myCoordinate - res).norm() > myDThresold;
-     //isComp = getProjDistance(myVectTerminals[id], res) > myDThresold;
-      id++;
-    }
-    
-    //generated point must have a certain distance to ALL tree segments
-    while ( isComp2 && id < myVectSegments.size() ) {
-      isComp2 = getProjDistance(myVectSegments[id].myIndex, res) > myVectSegments[id].myRadius;
-      id++;
-    }
-    return  std::pair<TPointD, bool> {res, isComp && isComp2};
+    const TPointD res = myDomainController().randomPoint();
+    for (const auto terminal : myVectTerminals)
+      if (!((myVectSegments[terminal].myCoordinate-res).norm() > myDThresold))
+        return {res,false};
+    // The root sentinel is not a segment. Check every physical segment,
+    // independently of how many terminals the first loop visited.
+    for (unsigned int id=1; id<myVectSegments.size(); ++id)
+      if (!(getProjDistance(id,res) > myVectSegments[id].myRadius))
+        return {res,false};
+    return {res,true};
 }
 
 

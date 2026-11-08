@@ -130,10 +130,12 @@ int main(int argc, char *const *argv)
   //CoronaryArteryTree cRand2 (DGtal::Z2i::RealPoint(0, 250), 20000000, 100);
   aPerf = 20000000;
     TreeTestCirc cRand2(DGtal::Z2i::RealPoint(0, sqrt(aPerf/M_PI)), aPerf, 50, ic);
+    ic.myRadius = cRand2.my_rPerf;
+    ic.myCenter = cRand2.myTreeCenter;
   
   for (unsigned int i = 0; i < 50; i++){
     DGtal::trace.progressBar(i, 50);
-      TreeTest::TPointD pt = cRand2.generateNewLocation(100);
+      TreeTest::TPointD pt = cRand2.generateNewLocation(1000);
     //std::cout <<"myCurrAPerf: " <<  cRand2.myCurrAPerf << std::endl;
     //std::cout <<"myDThresold: " <<  cRand2.myDThresold << std::endl;
 
@@ -174,10 +176,12 @@ int main(int argc, char *const *argv)
   //CoronaryArteryTree cRand3 (DGtal::Z2i::RealPoint(0, 250), 20000000, 100);
   aPerf = 20000000;
     TreeTestCirc cRand3(DGtal::Z2i::RealPoint(0, sqrt(aPerf/M_PI)), aPerf, 1000, ic);
+    ic.myRadius = cRand3.my_rPerf;
+    ic.myCenter = cRand3.myTreeCenter;
   
   for (unsigned int i = 0; i < 1000; i++){
     DGtal::trace.progressBar(i, 1000);
-    TreeTest::TPointD pt = cRand3.generateNewLocation(100);
+    TreeTest::TPointD pt = cRand3.generateNewLocation(1000);
     nearest = cRand3.getNearestSegment(pt);
     cRand3.addSegmentFromPoint(pt, nearest);
   }

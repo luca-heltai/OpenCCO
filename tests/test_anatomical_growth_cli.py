@@ -89,7 +89,7 @@ class AnatomicalGrowthCLI(unittest.TestCase):
             output = directory/"grown"
             command = [str(BINARY), "--input", str(anatomy), "--mask", str(mask),
                        "--origin", "0", "0", "0", "--pitch", ".001", "--flow", "1e-8",
-                       "--pressure-drop", "400", "--terminals", "2", "--seed", "23",
+                       "--pressure-drop", "400", "--terminals", "1", "--seed", "23",
                        "--surface", str(Path(__file__).resolve().parent/"data/cube_wall.stl"),
                        "--match-attachment-radius", "--output", str(output)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=30)

@@ -83,9 +83,12 @@ int main(int argc, char *const *argv)
   TreeTestCirc cIntersec (DGtal::Z2i::RealPoint(0, 0),
                    DGtal::Z2i::RealPoint(0, 30),
                    DGtal::Z2i::RealPoint (0,  0), 100, ic);
+  // This custom test constructor does not synchronize its supplied domain.
+  ic.myRadius = cIntersec.my_rPerf;
+  ic.myCenter = cIntersec.myTreeCenter;
   for (unsigned int i = 0; i < 100; i++){
     DGtal::trace.progressBar(i, 100);
-    TreeTestCirc::TPointD pt = cIntersec.generateNewLocation(100);
+    TreeTestCirc::TPointD pt = cIntersec.generateNewLocation(1000);
     auto nearest = cIntersec.getNearestSegment(pt);
     cIntersec.addSegmentFromPoint(pt, nearest);
   }
@@ -107,7 +110,8 @@ int main(int argc, char *const *argv)
   DGtal::Z2i::RealPoint pProj (0, 0);
   bool in = GeomHelpers::projectOnStraightLine(p0, p1, p2, pProj);
   DGtal::trace.info() << "Test intersecting segments pProj " << pProj
-  << " should be (5.3, 0) " << (pProj ==  DGtal::Z2i::RealPoint(5.3, 0) && in ? "OK": "KO")  << std::endl;
+  << " should be (5.3, 0) " << ((pProj-DGtal::Z2i::RealPoint(5.3,0)).norm() <=
+      16.*std::numeric_limits<double>::epsilon()*10. && in ? "OK": "KO")  << std::endl;
   DGtal::Z2i::RealPoint pp0 (0,  0);
   DGtal::Z2i::RealPoint pp1 (3, 3);
   DGtal::Z2i::RealPoint pp2 (0, 2);
