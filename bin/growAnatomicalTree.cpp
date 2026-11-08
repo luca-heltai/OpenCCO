@@ -291,9 +291,25 @@ int main(int argc, char **argv) {
           flow/(pitch*pitch*pitch)*fraction, pressureDrop, viscosity};
       Filter filter{mask, obstacles, systemId(source.role), static_cast<long long>(incident), direction, {}, {}};
       std::unique_ptr<Tree> tree;
+      Mask::TPointI center;
+      for (unsigned int j = 0; j < 3; ++j) center[j] = static_cast<int>(std::lround(root[j]));
       for (const double length : {5., 2.5, 1.25, .625}) {
-        auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, root+direction*length, parameters);
-        if (filter(candidate)) { tree = std::make_unique<Tree>(candidate); break; }
+        // Reuse the native mask initializer's digital-sphere search. Only the
+        // generated endpoint is sampled; the anatomical root remains exact.
+        const auto endpoints = GeomHelpers::pointsOnSphere<Mask::TPointI, Mask::TDGset>(center, length);
+        double bestClearance = -std::numeric_limits<double>::infinity();
+        for (const auto &endpoint : endpoints) {
+          const Point terminal(endpoint[0], endpoint[1], endpoint[2]);
+          if (terminal == root || (terminal-root).dot(direction) <= 0.) continue;
+          auto candidate = OpenCCO::seedAnatomicalSubtree(mask, root, terminal, parameters);
+          if (!filter(candidate)) continue;
+          const double clearance = mask.myDistanceImage(endpoint);
+          if (clearance > bestClearance) {
+            bestClearance = clearance;
+            tree = std::make_unique<Tree>(candidate);
+          }
+        }
+        if (tree) break;
       }
       if (!tree) {
         complete = false;
