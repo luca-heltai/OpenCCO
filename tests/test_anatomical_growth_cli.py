@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import csv
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -100,6 +101,61 @@ class AnatomicalGrowthCLI(unittest.TestCase):
                         for coordinate in ["x", "y", "z"]:
                             self.assertGreaterEqual(float(node[coordinate]), .001)
                             self.assertLess(float(node[coordinate]), .030)
+
+    def test_generated_only_length_repair_keeps_source_and_physical_gates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            mask = cube_mask(directory)
+            anatomy = directory/"input.anatomy"
+            anatomy.write_text("OpenCCOAnatomy 1\nportal metres\n2 1\n"
+                               ".010 .015 .015 .0002 1 0\n"
+                               ".015 .015 .015 .0002 0 1\n0 1\n")
+            bootstrap = directory/"bootstrap"
+            (bootstrap/"subtrees").mkdir(parents=True)
+            (bootstrap/"source.anatomy").write_bytes(anatomy.read_bytes())
+            state = ("OpenCCOGeneratedSubtree 1\nportal metres 1 4 3 1\n"
+                     "0 0 .015 .015 .015 .0002\n"
+                     "1 0 .01525 .015 .015 .0002\n"
+                     "2 1 .025 .020 .015 .00015\n"
+                     "3 1 .025 .010 .015 .00015\n")
+            path = bootstrap/"subtrees/attachment-1.cco"
+            path.write_text(state)
+            command = [str(BINARY), "--input", str(anatomy), "--mask", str(mask),
+                       "--origin", "0", "0", "0", "--pitch", ".001", "--flow", "1e-8",
+                       "--pressure-drop", "400", "--terminals", "2", "--match-attachment-radius",
+                       "--bootstrap", str(bootstrap), "--output", str(directory/"unrepaired")]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("short_diameter", (directory/"unrepaired/bootstrap-rejection-1.txt").read_text())
+            command[command.index("--output")+1] = str(directory/"repaired")
+            command += ["--relax-generated", "32"]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            summary = json.loads((directory/"repaired/summary.json").read_text())
+            self.assertEqual(summary["bootstrap_repaired_subtrees"], 1)
+            self.assertGreater(summary["bootstrap_maximum_generated_motion_m"], 0.)
+            self.assertLessEqual(summary["bootstrap_maximum_generated_motion_m"], .0004+1e-14)
+            with (directory/"repaired/nodes.csv").open() as stream:
+                nodes = list(csv.DictReader(stream))
+            self.assertEqual(tuple(float(nodes[1][c]) for c in ["x", "y", "z"]), (.015,.015,.015))
+            with (directory/"repaired/segments.csv").open() as stream:
+                for edge in csv.DictReader(stream):
+                    if edge["generated"] == "1":
+                        length = math.dist([float(edge[c+"0"]) for c in ["x","y","z"]],
+                                           [float(edge[c+"1"]) for c in ["x","y","z"]])
+                        self.assertGreaterEqual(length+1e-14, 2*max(float(edge["r0"]),float(edge["r1"])))
+                    else:
+                        self.assertEqual(float(edge["r0"]), .0002)
+                        self.assertEqual(float(edge["r1"]), .0002)
+            for name, text, reason in [
+                ("outside", state.replace("2 1 .025", "2 1 .040"), "mask_query"),
+                ("collision", state.replace("2 1 .025 .020", "2 1 .012 .015"), "fixed_collision"),
+            ]:
+                path.write_text(text)
+                command[command.index("--output")+1] = str(directory/name)
+                result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(reason, (directory/name/"bootstrap-rejection-1.txt").read_text())
 
     def test_explicit_two_port_allocation(self):
         with tempfile.TemporaryDirectory() as temporary:

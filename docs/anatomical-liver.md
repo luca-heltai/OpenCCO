@@ -190,6 +190,14 @@ normalized diameter and physical gate. Imported radius traces are never changed
 or averaged with a different generated-side trace. All other restored subtrees remain
 obstacles, and partial output retains even unprocessed accepted branches.
 
+`--relax-generated N` additionally permits up to N parent-first length-repair
+sweeps on a disposable generated candidate. It never moves anatomical root0,
+recomputes the same Poiseuille/Murray sizing, and limits repair motion to one
+initial inlet diameter. All physical gates are checked afterwards; failed or
+unconverged proposals are rejected. Bootstrap repairs happen before registering
+and jointly validating restored obstacles. Trial repair motion and sweep counts
+are reported separately from the native optimizer's usual node relocation.
+
 This restores generated geometry, not opaque optimizer/RNG execution state.
 Generated lattice coordinates are recovered within arithmetic roundoff; original
 anatomical nodes are never snapped. Older CSV-only inspection snapshots lack

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "AnatomicalGrowth.h"
 #include "GeneratedSubtreeState.h"
+#include "GeneratedGeometry.h"
 #include "ExpandTreeHelpers.h"
 #include "CLI11.hpp"
 #include "FrustumGeometry.h"
@@ -84,6 +85,8 @@ struct Filter {
   std::function<OpenCCO::SurfaceWall::Result(const Point &, const Point &, double)> surfaceCertificate;
   std::size_t attachment = std::numeric_limits<std::size_t>::max();
   bool strictDiameter = false;
+  unsigned int relaxationSweeps = 0;
+  double maximumTrialMotion = 0.;
   bool reject(const std::string &reason) { ++counts[reason]; return false; }
   bool wall(const Point &a, const Point &b, double radius) {
     if (surfaceCertificate) {
@@ -110,6 +113,13 @@ struct Filter {
     tree.myLengthFactor = 1.;
     tree.updateResistanceFromRoot();
     tree.updateRootRadius();
+    if (relaxationSweeps>0) {
+      const auto relaxed=OpenCCO::relaxGeneratedLengths(tree,relaxationSweeps);
+      counts["relaxation_sweeps"]+=relaxed.sweeps;
+      maximumTrialMotion=std::max(maximumTrialMotion,relaxed.maximumDisplacement);
+      if (!relaxed.valid) return reject("relaxation_budget");
+      if (relaxed.sweeps>0) ++counts["relaxed_candidates"];
+    }
     std::set<std::array<double, 3>> positions;
     for (const auto &segment : tree.myVectSegments) {
       const auto &p = segment.myCoordinate;
@@ -131,7 +141,7 @@ struct Filter {
           (nativeA != nativeB && !mask.checkNoIntersectDomain(nativeA, nativeB)))
         return reject("mask_query");
       if ((b-a).norm() <= 0.) return reject("degenerate");
-      if ((tree.myFixedRootRadius > 0. || strictDiameter) && 2*radius > (b-a).norm()) return reject("short_diameter");
+      if ((tree.myFixedRootRadius > 0. || strictDiameter || relaxationSweeps>0) && 2*radius > (b-a).norm()) return reject("short_diameter");
       if (parent == 0 && (b-a).dot(outward) <= 0.) return reject("foldback");
       if (!wall(a, b, radius)) return reject("wall");
       for (const auto &obstacle : fixed) {
@@ -214,7 +224,7 @@ int main(int argc, char **argv) {
   double pitch = .002, flow = 0., pressureDrop = 0., viscosity = .00371;
   unsigned int target = 64, seed = 23, searches = 100, samples = 1000;
   bool matchRadius = false, resizeBootstrap = false;
-  unsigned int localCandidates = 0;
+  unsigned int localCandidates = 0, relaxationSweeps = 0;
   app.add_option("--input", input)->required();
   app.add_option("--bootstrap", bootstrapPath, "Validated generated-subtree geometry directory");
   app.add_flag("--resize-bootstrap", resizeBootstrap, "Explicitly allow generated sizing-mode changes; retain all diameter checks");
@@ -233,6 +243,7 @@ int main(int argc, char **argv) {
   app.add_option("--searches", searches);
   app.add_option("--samples", samples);
   app.add_option("--local-candidates", localCandidates, "Bounded explicit local proposals per insertion;0 keeps native sampling");
+  app.add_option("--relax-generated", relaxationSweeps, "Bounded generated-only diameter-repair sweeps;0 disables");
   app.add_option("--obstacles", obstacleFiles)->expected(-1);
   app.add_option("--grown-obstacles", grownFiles)->expected(-1);
   CLI11_PARSE(app, argc, argv);
@@ -240,7 +251,7 @@ int main(int argc, char **argv) {
     if (!std::isfinite(pitch) || pitch <= 0. || !std::isfinite(flow) || flow <= 0. ||
         !std::isfinite(pressureDrop) || pressureDrop <= 0. || !std::isfinite(viscosity) || viscosity <= 0. ||
         target < 1 || target > 1000000 || searches < 1 || searches > 1000000 ||
-        samples < 1 || samples > 1000000 || localCandidates > 1000000)
+        samples < 1 || samples > 1000000 || localCandidates > 1000000 || relaxationSweeps > 64)
       throw std::runtime_error("Require finite positive physical parameters and budgets");
     if (resizeBootstrap && bootstrapPath.empty()) throw std::runtime_error("Resizing requires an explicit bootstrap");
     const Point origin(originValues[0], originValues[1], originValues[2]);
@@ -376,7 +387,8 @@ int main(int argc, char **argv) {
                              segment.myRadius,segment.myRadius,static_cast<long long>(attachment)});
       }
     };
-    std::size_t bootstrapTips=0;
+    std::size_t bootstrapTips=0, bootstrapRepairs=0;
+    double bootstrapMotion=0.;
     if (!bootstrapPath.empty()) {
       std::ostringstream fingerprint;
       OpenCCO::writeAnatomicalTree(fingerprint,readAnatomy((std::filesystem::path(bootstrapPath)/"source.anatomy").string()));
@@ -386,6 +398,12 @@ int main(int argc, char **argv) {
         std::ifstream stream(path);
         if (!stream) throw std::runtime_error("Missing bootstrap generated subtree: "+path.string());
         auto tree=OpenCCO::readGeneratedSubtree(stream,mask,source,plan.id,origin,pitch,plan.parameters,matchRadius,resizeBootstrap);
+        if (relaxationSweeps>0) {
+          const auto repaired=OpenCCO::relaxGeneratedLengths(tree,relaxationSweeps);
+          if (!repaired.valid) throw std::runtime_error("Bootstrap generated relaxation budget exhausted");
+          if (repaired.sweeps>0) ++bootstrapRepairs;
+          bootstrapMotion=std::max(bootstrapMotion,repaired.maximumDisplacement*pitch);
+        }
         bootstrapTips+=tree.myKTerm;
         forest[plan.id]=std::make_unique<Tree>(std::move(tree));
         addObstacles(plan.id,*forest.at(plan.id));
@@ -394,7 +412,7 @@ int main(int argc, char **argv) {
       // remain obstacles and must be valid before any continuation is attempted.
       for (const auto &plan : plans) {
         Filter check{mask,obstacles,systemId(source.role),static_cast<long long>(plan.incident),
-                     plan.direction,{},{},surfaceCertificate,plan.id,resizeBootstrap};
+                     plan.direction,{},{},surfaceCertificate,plan.id,resizeBootstrap || relaxationSweeps>0};
         if (!check(*forest.at(plan.id))) {
           std::ofstream rejected(std::filesystem::path(output)/("bootstrap-rejection-"+std::to_string(plan.id)+".txt"));
           for (const auto &entry : check.counts) rejected << entry.first << " " << entry.second << "\n";
@@ -432,7 +450,7 @@ int main(int argc, char **argv) {
       const auto quota=parameters.terminals;
       const auto fraction=plan.fraction;
       Filter filter{mask,obstacles,systemId(source.role),static_cast<long long>(plan.incident),
-                    direction,{},{},surfaceCertificate,attachment,resizeBootstrap};
+                    direction,{},{},surfaceCertificate,attachment,resizeBootstrap,relaxationSweeps};
       auto &tree=forest[attachment];
       const auto nativeDiagnostics = std::make_shared<std::map<std::string, std::size_t>>();
       const auto makeSeed = [&](const Point &terminal) {
@@ -520,6 +538,7 @@ int main(int argc, char **argv) {
                  << std::setprecision(17) << fraction
                  << ",\"required_pressure_drop_pa\":" << (tree ? tree->my_pDrop : -1.)
                  << ",\"inlet_radius_m\":" << (tree ? tree->myVectSegments[1].myRadius*pitch : -1.)
+                 << ",\"maximum_trial_relaxation_motion_m\":" << filter.maximumTrialMotion*pitch
                  << ",\"candidate_counts\":{";
       bool comma = false;
       for (const auto &entry : filter.counts) {
@@ -543,7 +562,10 @@ int main(int argc, char **argv) {
             << ",\"imported_edges\":" << source.edges.size() << ",\"flow_m3_s\":" << flow
             << ",\"local_pressure_drop_pa\":" << pressureDrop << ",\"viscosity_pa_s\":" << viscosity
             << ",\"bootstrap_resizing_allowed\":" << (resizeBootstrap ? "true" : "false")
-            << ",\"all_generated_diameter_checks\":" << ((matchRadius || resizeBootstrap) ? "true" : "false")
+            << ",\"generated_relaxation_sweeps\":" << relaxationSweeps
+            << ",\"bootstrap_repaired_subtrees\":" << bootstrapRepairs
+            << ",\"bootstrap_maximum_generated_motion_m\":" << bootstrapMotion
+            << ",\"all_generated_diameter_checks\":" << ((matchRadius || resizeBootstrap || relaxationSweeps>0) ? "true" : "false")
             << ",\"bootstrap_tip_count\":" << bootstrapTips
             << ",\"local_candidate_budget\":" << localCandidates
             << ",\"pressure_drop_prescribed\":" << (matchRadius ? "false" : "true")

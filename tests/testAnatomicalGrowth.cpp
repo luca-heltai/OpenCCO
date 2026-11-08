@@ -1,5 +1,6 @@
 #include "AnatomicalGrowth.h"
 #include "GeneratedSubtreeState.h"
+#include "GeneratedGeometry.h"
 #include <sstream>
 #include "ExpandTreeHelpers.h"
 #include "FrustumGeometry.h"
@@ -7,6 +8,48 @@
 
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
+}
+
+void testGeneratedLengthRelaxation() {
+  using Point=DGtal::PointVector<3,double>;
+  CircularDomainCtrl<3> domain(100.,Point());
+  auto tree=OpenCCO::seedAnatomicalSubtree(domain,Point(),Point(.3,0.,0.),{2,1000.,1.,400.,.00371});
+  tree.myVectSegments.resize(4);tree.myVectParent={0,0,1,1};
+  tree.myVectChildren={{0,0},{2,3},{0,0},{0,0}};tree.myVectTerminals={2,3};tree.myKTerm=2;
+  tree.myVectSegments[1].myKTerm=2;tree.myVectSegments[1].myFlow=1.;
+  for (unsigned int i=2;i<4;++i) {
+    tree.myVectSegments[i].myIndex=i;
+    tree.myVectSegments[i].myCoordinate=Point(2.,i==2 ? 1. : -1.,0.);
+    tree.myVectSegments[i].myFlow=.5;
+  }
+  tree.myFixedRootRadius=.2;
+  const auto original=tree;
+  const auto exhausted=OpenCCO::relaxGeneratedLengths(tree,0);
+  require(!exhausted.valid && tree.myVectSegments[1].myCoordinate==Point(.3,0.,0.),
+          "Zero repair budget moved generated geometry");
+  const auto fixed=OpenCCO::relaxGeneratedLengths(tree,32);
+  require(fixed.valid && fixed.sweeps>0 && fixed.maximumDisplacement<=.4+1e-12 &&
+          tree.myVectSegments[0].myCoordinate==Point(),
+          "Bounded repair moved its anatomical root or exceeded its motion budget");
+  const double kappa=8.*.00371/M_PI;
+  const auto check=[&](const auto &state) {
+    for (unsigned int i=1;i<4;++i)
+      require((state.myVectSegments[i].myCoordinate-state.myVectSegments[state.myVectParent[i]].myCoordinate).norm()
+                >=2.*state.myVectSegments[i].myRadius,"Repair left an invalid actual diameter");
+    const double rootLength=state.myVectSegments[1].myCoordinate.norm();
+    const double childLength=(state.myVectSegments[2].myCoordinate-state.myVectSegments[1].myCoordinate).norm();
+    const double pressure=kappa*rootLength/std::pow(state.myVectSegments[1].myRadius,4)+
+                          .5*kappa*childLength/std::pow(state.myVectSegments[2].myRadius,4);
+    require(std::abs(pressure-state.my_pDrop)<1e-12,"Repaired binary pressure violates independent Poiseuille oracle");
+  };
+  check(tree);
+  auto pressureSized=original;
+  pressureSized.myFixedRootRadius=0.;pressureSized.my_pDrop=.5;pressureSized.my_pPerf=.5;
+  const auto canonical=OpenCCO::relaxGeneratedLengths(pressureSized,32);
+  require(canonical.valid && pressureSized.my_pDrop==.5 &&
+          pressureSized.myVectSegments[0].myCoordinate==Point(),
+          "Canonical repair changed pressure input or anatomical root");
+  check(pressureSized);
 }
 
 void testAcceptedCandidateScoring() {
@@ -151,6 +194,7 @@ int main() {
     testMeasuredRadius();
     testNativeSeparationCertificate();
     testAcceptedCandidateScoring();
+    testGeneratedLengthRelaxation();
     OpenCCO::AnatomicalTree source;
     source.role = "portal";
     source.nodes = {{{{.1, .2, .3}}, .001, true, false},
